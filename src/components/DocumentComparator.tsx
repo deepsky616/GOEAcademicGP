@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { BASELINE_ARTICLES, getArticleKey, type Article } from '@/lib/baselineData';
+import { useState, useCallback, useEffect } from 'react';
+import { BASELINE_ARTICLES, getArticleKey } from '@/lib/baselineData';
+import { analyzeWithAI, extractSchoolName, type ComparisonResult } from '@/lib/aiAnalysis';
+import ApiKeyInput from './ApiKeyInput';
 
 interface DiffResult {
   articleId: string;
@@ -127,16 +129,27 @@ function compareWithBaseline(uploadedText: string): DiffResult[] {
   return results;
 }
 
-interface DocumentComparatorProps {
-  onResult?: (results: DiffResult[]) => void;
-}
-
-export default function DocumentComparator({ onResult }: DocumentComparatorProps) {
+export default function DocumentComparator() {
+  const [mode, setMode] = useState<'basic' | 'ai'>('basic');
+  const [apiKey, setApiKey] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [results, setResults] = useState<DiffResult[] | null>(null);
+  const [aiResult, setAiResult] = useState<ComparisonResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'added' | 'removed' | 'modified'>('all');
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('gemini_api_key');
+    if (savedKey) {
+      setApiKey(savedKey);
+    }
+  }, []);
+
+  const handleApiKeySet = useCallback((key: string) => {
+    setApiKey(key);
+  }, []);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -149,40 +162,80 @@ export default function DocumentComparator({ onResult }: DocumentComparatorProps
     setError(null);
     setFile(selectedFile);
     setResults(null);
+    setAiResult(null);
   }, []);
 
-  const handleAnalyze = useCallback(async () => {
+  const extractTextFromPdf = async (file: File): Promise<string> => {
+    const pdfjsLib = await import('pdfjs-dist');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item: unknown) => ('str' in (item as Record<string, unknown>) ? (item as { str: string }).str : ''))
+        .join(' ');
+      fullText += pageText + '\n';
+    }
+    return fullText;
+  };
+
+  const handleBasicAnalyze = useCallback(async () => {
     if (!file) return;
 
     setIsAnalyzing(true);
     setError(null);
 
     try {
-      const pdfjsLib = await import('pdfjs-dist');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-      let fullText = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items
-          .map((item: unknown) => ('str' in (item as Record<string, unknown>) ? (item as { str: string }).str : ''))
-          .join(' ');
-        fullText += pageText + '\n';
-      }
-
+      const fullText = await extractTextFromPdf(file);
       const diffResults = compareWithBaseline(fullText);
       setResults(diffResults);
-      onResult?.(diffResults);
     } catch (err) {
       setError('PDF 분석 중 오류가 발생했습니다.');
     } finally {
       setIsAnalyzing(false);
     }
-  }, [file, onResult]);
+  }, [file]);
+
+  const handleAIAnalyze = useCallback(async () => {
+    if (!file || !apiKey) return;
+
+    setIsAnalyzing(true);
+    setError(null);
+    setAiProgress(0);
+    setAiResult(null);
+
+    try {
+      const fullText = await extractTextFromPdf(file);
+      const schoolName = extractSchoolName(fullText);
+
+      const result = await analyzeWithAI(apiKey, fullText, (progress) => {
+        setAiProgress(progress);
+      });
+
+      if (schoolName) {
+        result.schoolName = schoolName;
+      }
+
+      setAiResult(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '알 수 없는 오류';
+      if (message.includes('API_KEY')) {
+        setError('유효하지 않은 API 키입니다. 다시 확인해주세요.');
+      } else if (message.includes('quota') || message.includes('limit')) {
+        setError('API 사용량이 초과되었습니다. 나중에 다시 시도해주세요.');
+      } else {
+        setError(`AI 분석 중 오류가 발생했습니다: ${message}`);
+      }
+    } finally {
+      setIsAnalyzing(false);
+      setAiProgress(0);
+    }
+  }, [file, apiKey]);
 
   const filteredResults = results?.filter(r => filter === 'all' || r.status === filter) ?? [];
 
@@ -196,13 +249,47 @@ export default function DocumentComparator({ onResult }: DocumentComparatorProps
 
   return (
     <div className="space-y-6">
+      {!apiKey && mode === 'ai' && (
+        <ApiKeyInput onApiKeySet={handleApiKeySet} />
+      )}
+
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">
-          학업성적관리규정 비교 분석
-        </h2>
-        <p className="text-sm text-gray-600 mb-4">
-          기준: 2025 경기도 초등학교 학업성적관리규정 예시안
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800">
+              학업성적관리규정 비교 분석
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              기준: 2025 경기도 초등학교 학업성적관리규정 예시안
+            </p>
+          </div>
+
+          <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setMode('basic')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                mode === 'basic'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              기본 비교
+            </button>
+            <button
+              onClick={() => setMode('ai')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                mode === 'ai'
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <span>AI 분석</span>
+              <span className={`text-xs ${apiKey ? 'text-green-300' : 'text-yellow-300'}`}>
+                {apiKey ? '●' : '○'}
+              </span>
+            </button>
+          </div>
+        </div>
 
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
           <input
@@ -224,23 +311,39 @@ export default function DocumentComparator({ onResult }: DocumentComparatorProps
           </label>
         </div>
 
-        {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+        {error && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-700 text-sm">{error}</p>
+          </div>
+        )}
 
         {file && (
           <button
-            onClick={handleAnalyze}
-            disabled={isAnalyzing}
-            className="mt-4 w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400"
+            onClick={mode === 'ai' ? handleAIAnalyze : handleBasicAnalyze}
+            disabled={isAnalyzing || (mode === 'ai' && !apiKey)}
+            className={`mt-4 w-full py-3 px-6 rounded-lg font-medium transition-colors disabled:bg-gray-400 ${
+              mode === 'ai'
+                ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
           >
-            {isAnalyzing ? '분석 중...' : '비교 분석 시작'}
+            {isAnalyzing
+              ? mode === 'ai'
+                ? `AI 분석 중... ${aiProgress}%`
+                : '분석 중...'
+              : mode === 'ai'
+                ? apiKey
+                  ? 'AI 분석 시작'
+                  : 'API 키 설정 필요'
+                : '비교 분석 시작'}
           </button>
         )}
       </div>
 
-      {results && stats && (
+      {results && stats && mode === 'basic' && (
         <>
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">비교 결과 요약</h3>
+            <h3 className="text-lg font-semibold mb-4">기본 비교 결과</h3>
             <div className="grid grid-cols-5 gap-4 text-center">
               <div className="p-3 bg-gray-100 rounded-lg">
                 <div className="text-2xl font-bold text-gray-700">{stats.total}</div>
@@ -320,16 +423,16 @@ export default function DocumentComparator({ onResult }: DocumentComparatorProps
                   </div>
                 )}
 
-                {result.status === 'modified' && result.diffHtml && (
+                {result.status === 'modified' && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-500 font-medium mb-2">기준 (예시안)</p>
+                      <p className="text-sm text-gray-500 font-medium mb-2">예시안</p>
                       <pre className="text-sm text-gray-700 whitespace-pre-wrap overflow-auto max-h-64">
                         {result.baselineContent}
                       </pre>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-sm text-gray-500 font-medium mb-2">변경됨 (학교)</p>
+                      <p className="text-sm text-gray-500 font-medium mb-2">학교 규정</p>
                       <pre className="text-sm text-gray-700 whitespace-pre-wrap overflow-auto max-h-64">
                         {result.uploadedContent}
                       </pre>
@@ -344,6 +447,55 @@ export default function DocumentComparator({ onResult }: DocumentComparatorProps
             ))}
           </div>
         </>
+      )}
+
+      {aiResult && mode === 'ai' && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold">AI 분석 결과</h3>
+            <div className="text-xs text-gray-500">
+              분석 완료: {new Date(aiResult.analyzedAt).toLocaleString('ko-KR')}
+            </div>
+          </div>
+
+          {aiResult.schoolName && (
+            <div className="mb-6 p-4 bg-purple-50 rounded-lg">
+              <h4 className="font-medium text-purple-800">{aiResult.schoolName}</h4>
+              <p className="text-sm text-purple-600">학업성적관리규정 AI 분석 결과</p>
+            </div>
+          )}
+
+          <div className="mb-6">
+            <h4 className="text-sm font-medium text-gray-700 mb-2">종합 요약</h4>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-gray-700 whitespace-pre-wrap">{aiResult.summary}</p>
+            </div>
+          </div>
+
+          {aiResult.recommendations.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">추천 사항</h4>
+              <ul className="space-y-2">
+                {aiResult.recommendations.map((rec, idx) => (
+                  <li key={idx} className="flex items-start gap-2 text-sm">
+                    <span className="text-purple-600 mt-1">•</span>
+                    <span className="text-gray-700">{rec}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">AI가 분석한 조문 변경 사항</h4>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-800">
+                AI의 상세 조문 분석은 AI 응답 전체를 확인하세요.
+                조문별 추출 정보는 AI 응답 형식에 따라 표시됩니다.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
