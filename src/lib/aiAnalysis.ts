@@ -54,7 +54,8 @@ function buildAnalysisPrompt(schoolRegulationText: string): string {
 3. 오류 내용에는 실제 규정에서 잘못된 부분의 **원문**을 포함해주세요
 4. 수정 제안에는 예시안에 맞는 **정정 내용**을 구체적으로 작성해주세요
 5. 문제가 없는 조문은 작성하지 않아도 됩니다
-6. 한국어로 작성해주세요`;
+6. 한국어로 작성해주세요
+7. **1안/2안 선택 사항**: 예시안에 (1안), (2안)等形式이 있는 경우, 학교에서 **하나를 선택**하면 정상입니다. 선택된 항목이 없거나 다른 내용이 작성된 경우에만 오류로 판정해주세요`;
 
   return baselineSummary + '\n' + uploadedContent + '\n' + analysisInstructions;
 }
