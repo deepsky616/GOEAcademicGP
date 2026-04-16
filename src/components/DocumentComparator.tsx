@@ -440,14 +440,7 @@ export default function DocumentComparator() {
           </div>
 
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h3 className="text-lg font-semibold">세부 오류 내역</h3>
-              {schoolName && (
-                <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
-                  {schoolName}
-                </span>
-              )}
-            </div>
+            <h3 className="text-lg font-semibold">세부 오류 내역</h3>
             <div className="flex gap-2">
               <button
                 onClick={handleCopyAll}
