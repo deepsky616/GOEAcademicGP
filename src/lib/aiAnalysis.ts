@@ -69,40 +69,35 @@ export async function analyzeWithAI(
   onProgress?: (progress: number, status?: string) => void
 ): Promise<ComparisonResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const selectedModel = genAI.getGenerativeModel({ model });
+  const genModel = genAI.getGenerativeModel({ model });
 
   onProgress?.(10, '프롬프트 생성 중...');
 
   const prompt = buildAnalysisPrompt(schoolRegulationText);
 
-  onProgress?.(20, 'AI 분석 시작...');
-
   onProgress?.(30, 'AI 분석 중...');
 
-  const result = await selectedModel.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      maxOutputTokens: 8192,
-      temperature: 0.7,
-    },
-  });
+  try {
+    const result = await genModel.generateContent(prompt);
+    const fullResponse = result.response.text();
 
-  const response = result.response;
-  const fullResponse = response.text();
+    onProgress?.(90, '응답 처리 중...');
 
-  onProgress?.(90, '응답 처리 중...');
+    const comparisonResult: ComparisonResult = {
+      model,
+      analyzedAt: new Date().toISOString(),
+      summary: fullResponse,
+      articles: [],
+      recommendations: [],
+    };
 
-  const comparisonResult: ComparisonResult = {
-    model,
-    analyzedAt: new Date().toISOString(),
-    summary: fullResponse,
-    articles: [],
-    recommendations: [],
-  };
+    onProgress?.(100, '분석 완료!');
 
-  onProgress?.(100, '분석 완료!');
-
-  return comparisonResult;
+    return comparisonResult;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '알 수 없는 오류';
+    throw new Error(message);
+  }
 }
 
 export function extractSchoolName(text: string): string | undefined {
