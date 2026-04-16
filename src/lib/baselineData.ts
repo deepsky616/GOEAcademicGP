@@ -22,6 +22,7 @@ export const CHAPTERS: Chapter[] = [
   { id: 'ch4', name: '창의적 체험활동상황', chapterNumber: 4 },
   { id: 'ch5', name: '행동특성 및 종합의견', chapterNumber: 5 },
   { id: 'ch6', name: '기타 사항', chapterNumber: 6 },
+  { id: 'ch7', name: '부칙', chapterNumber: 7 },
 ];
 
 export const BASELINE_ARTICLES: Article[] = [
@@ -302,11 +303,21 @@ export const BASELINE_ARTICLES: Article[] = [
     content: `① (1~3학년)「학교폭력예방 및 대응에 관한 법률」제17조제1항에 따른 가해학생에 대한 조치결정 일자 및 조치사항을 입력한다.
 ② (4~6학년)「학교폭력예방 및 대응에 관한 법률」제17조제1항제1호부터 제3호, 제7호에 따른 가해학생에 대한 조치사항은 '행동특성 및 종합의견'에, 제4호부터 제6호에 따른 조치사항은 '출결상황'의 '특기사항'에, 제8호에 따른 조치사항은 '인적‧학적사항'의 '특기사항'에 입력한다.`,
   },
+  {
+    id: 'ch7-art1',
+    chapter: 'ch7',
+    articleNumber: 1,
+    title: '부칙',
+    content: `① (시행일) 이 규정은 2026년 3월 0일부터 시행한다.
+② (본 규정에 없는 사항의 처리) 이 규정에 규정되지 않은 사항은 「학교생활기록 작성 및 관리지침」(교육부훈령 제555호)에 의거 학업성적관리위원회 심의를 거쳐 학교장의 결재를 받아 시행한다.`,
+  },
 ];
 
 export function getChapterName(chapterId: string): string {
   const chapter = CHAPTERS.find(c => c.id === chapterId);
-  return chapter ? `${chapter.chapterNumber}장 ${chapter.name}` : '';
+  if (!chapter) return '';
+  if (chapter.name === '부칙') return '부칙';
+  return chapter.chapterNumber + '장 ' + chapter.name;
 }
 
 export function getArticleKey(article: Article): string {
