@@ -409,7 +409,7 @@ export default function DocumentComparator() {
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="mb-4">
           <h2 className="text-xl font-semibold text-gray-800">학업성적관리규정 AI 분석</h2>
-          <p className="text-sm text-gray-600 mt-1">기준: 2025 경기도 초등학교 학업성적관리규정 예시안</p>
+          <p className="text-sm text-gray-600 mt-1">기준: 2026 경기도 초등학교 학업성적관리규정 예시안</p>
         </div>
 
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition-colors">
