@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: '경기도교육청 학업성적 분석기',
+  title: '경기도교육청 학업성적관리규정 분석',
   description: '경기도 초등학교 학업성적관리 시행지침 분석 도구',
 };
 
