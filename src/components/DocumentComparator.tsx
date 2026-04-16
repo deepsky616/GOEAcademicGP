@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { analyzeWithAI, extractSchoolName, type ComparisonResult } from '@/lib/aiAnalysis';
+import { analyzeWithAI, extractSchoolName } from '@/lib/aiAnalysis';
 import ApiKeyInput from './ApiKeyInput';
 
 interface ErrorItem {
@@ -11,80 +11,123 @@ interface ErrorItem {
   feedback: string;
 }
 
-function parseAIResponseToErrors(summary: string, schoolName?: string): ErrorItem[] {
+function parseAIResponseToErrors(summary: string): ErrorItem[] {
   const errors: ErrorItem[] = [];
   let id = 0;
 
-  const lines = summary.split('\n');
-  let currentArticle = '';
-  let currentContent: string[] = [];
-  let collectingFeedback = false;
-  let currentFeedback: string[] = [];
+  const articlePattern = /##\s*\[(제\d+조[^\]]*)\]\s*\(([^)]+)\)|##\s*\[(제\d+조[^]]*)\]/g;
+  const errorPattern = /\*\*오류 내용:\*\*\s*([\s\S]*?)(?=\*\*수정 제안:\*\*|\*\*피드백:\*\*|##|$)/i;
+  const feedbackPattern = /\*\*수정 제안:\*\*\s*([\s\S]*?)(?=\*\*오류 내용:\*\*|##|$)/i;
+  const feedbackAltPattern = /\*\*피드백:\*\*\s*([\s\S]*?)(?=\*\*오류 내용:\*\*|##|$)/i;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  const sections = summary.split(/##\s*\[/);
 
-    if (!trimmed) continue;
+  for (const section of sections) {
+    if (!section.trim()) continue;
 
-    const articleMatch = trimmed.match(/^(제\d+조[^:]*[:\s]|제\d+조의?\d?\s*[:\s]|[第十二三四五六七八九十]+조[^:]*[:\s]*)/);
-    if (articleMatch) {
-      if (currentArticle && currentContent.length > 0) {
-        id++;
-        errors.push({
-          id,
-          article: currentArticle.replace(/[:\s]*$/, '').trim() || '학업성적관리규정',
-          errorContent: currentContent.join(' ').trim(),
-          feedback: currentFeedback.join(' ').trim(),
-        });
-      }
-      currentArticle = articleMatch[1].replace(/[:\s]*$/, '').trim();
-      const rest = trimmed.slice(articleMatch[0].length).trim();
-      currentContent = rest ? [rest] : [];
-      collectingFeedback = false;
-      currentFeedback = [];
-      continue;
-    }
+    let articleNum = '';
+    let articleTitle = '';
+    let errorContent = '';
+    let feedback = '';
 
-    if (trimmed.startsWith('삭제') || trimmed.startsWith('제거') || trimmed.includes('없음')) {
-      collectingFeedback = true;
-      if (!currentArticle.includes('삭제') && !currentArticle.includes('없음')) {
-        currentArticle = '삭제된 조항';
+    const headerMatch = section.match(/^(제\d+조[^]]*)\]\s*\(([^)]+)\)/);
+    if (headerMatch) {
+      articleNum = headerMatch[1].trim();
+      articleTitle = headerMatch[2].trim();
+    } else if (section.startsWith('제')) {
+      const simpleMatch = section.match(/^(제\d+조[^:\n]*)/);
+      if (simpleMatch) {
+        articleNum = simpleMatch[1].trim();
       }
     }
 
-    if (collectingFeedback) {
-      currentFeedback.push(trimmed.replace(/^[-\•→]\s*/, ''));
+    const body = section.replace(/^[^]*?(?=\*\*|$)/, '');
+
+    const errorMatch = body.match(/\*\*오류 내용:\*\*\s*([\s\S]*?)(?=\*\*수정 제안:\*\*|\*\*피드백:\*\*|$)/i);
+    if (errorMatch) {
+      errorContent = errorMatch[1].trim().replace(/\n+/g, ' ');
+    }
+
+    const feedbackMatch = body.match(/\*\*수정 제안:\*\*\s*([\s\S]*?)(?=##|$)/i);
+    if (feedbackMatch) {
+      feedback = feedbackMatch[1].trim().replace(/\n+/g, ' ');
     } else {
-      if (trimmed.match(/^[-\•]+/) && !currentContent.length) {
-        currentContent.push(trimmed.replace(/^[-\•]\s*/, ''));
-      } else if (currentContent.length > 0 || trimmed.match(/^[\[<\(]/)) {
-        currentContent.push(trimmed);
+      const feedbackAltMatch = body.match(/\*\*피드백:\*\*\s*([\s\S]*?)(?=##|$)/i);
+      if (feedbackAltMatch) {
+        feedback = feedbackAltMatch[1].trim().replace(/\n+/g, ' ');
       }
     }
-  }
 
-  if (currentArticle && currentContent.length > 0) {
-    id++;
-    errors.push({
-      id,
-      article: currentArticle.replace(/[:\s]*$/, '').trim() || '학업성적관리규정',
-      errorContent: currentContent.join(' ').trim(),
-      feedback: currentFeedback.join(' ').trim(),
-    });
+    if (errorContent || feedback) {
+      id++;
+      errors.push({
+        id,
+        article: articleNum || '학업성적관리규정',
+        errorContent: errorContent || feedback || '내용 없음',
+        feedback: feedback || '수정 제안 없음',
+      });
+    }
   }
 
   if (errors.length === 0) {
-    const paragraphs = summary.split(/\n\n+/);
-    for (const para of paragraphs) {
-      if (para.trim().length > 10) {
-        id++;
-        errors.push({
-          id,
-          article: errors.length === 0 ? '종합' : `항목 ${id}`,
-          errorContent: para.trim(),
-          feedback: '',
-        });
+    const lines = summary.split('\n');
+    let currentArticle = '';
+    let currentError: string[] = [];
+    let currentFeedback: string[] = [];
+    let mode: 'error' | 'feedback' | 'none' = 'none';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('##') || trimmed.startsWith('제')) {
+        if (currentArticle && currentError.length > 0) {
+          id++;
+          errors.push({
+            id,
+            article: currentArticle,
+            errorContent: currentError.join(' ').trim(),
+            feedback: currentFeedback.join(' ').trim(),
+          });
+        }
+        const match = trimmed.match(/제\d+조[^:\n]*/);
+        if (match) {
+          currentArticle = match[0];
+        }
+        currentError = [];
+        currentFeedback = [];
+        mode = 'none';
+        continue;
       }
+
+      if (trimmed.includes('오류 내용')) {
+        mode = 'error';
+        const content = trimmed.replace(/.*오류 내용[：:]\s*/, '');
+        if (content) currentError.push(content);
+        continue;
+      }
+
+      if (trimmed.includes('수정 제안') || trimmed.includes('피드백')) {
+        mode = 'feedback';
+        const content = trimmed.replace(/.*수정 제안[：:]\s*/, '').replace(/.*피드백[：:]\s*/, '');
+        if (content) currentFeedback.push(content);
+        continue;
+      }
+
+      if (mode === 'error' && trimmed) {
+        currentError.push(trimmed.replace(/^[-\•]\s*/, ''));
+      } else if (mode === 'feedback' && trimmed) {
+        currentFeedback.push(trimmed.replace(/^[-\•]\s*/, ''));
+      }
+    }
+
+    if (currentArticle && currentError.length > 0) {
+      id++;
+      errors.push({
+        id,
+        article: currentArticle,
+        errorContent: currentError.join(' ').trim(),
+        feedback: currentFeedback.join(' ').trim(),
+      });
     }
   }
 
@@ -96,12 +139,13 @@ export default function DocumentComparator() {
   const [model, setModel] = useState<string>('gemini-2.0-flash');
   const [showSettings, setShowSettings] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const [aiResult, setAiResult] = useState<ComparisonResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiProgress, setAiProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [errorItems, setErrorItems] = useState<ErrorItem[]>([]);
   const [deletedItems, setDeletedItems] = useState<Set<number>>(new Set());
+  const [schoolName, setSchoolName] = useState<string>('');
+  const [analyzedAt, setAnalyzedAt] = useState<string>('');
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
@@ -138,9 +182,10 @@ export default function DocumentComparator() {
     }
     setError(null);
     setFile(selectedFile);
-    setAiResult(null);
     setErrorItems([]);
     setDeletedItems(new Set());
+    setSchoolName('');
+    setAnalyzedAt('');
   }, []);
 
   const extractTextFromPdf = async (file: File): Promise<string> => {
@@ -168,26 +213,22 @@ export default function DocumentComparator() {
     setIsAnalyzing(true);
     setError(null);
     setAiProgress(0);
-    setAiResult(null);
     setErrorItems([]);
     setDeletedItems(new Set());
 
     try {
       const fullText = await extractTextFromPdf(file);
-      const schoolName = extractSchoolName(fullText);
+      const extractedSchoolName = extractSchoolName(fullText);
+      if (extractedSchoolName) {
+        setSchoolName(extractedSchoolName);
+      }
+      setAnalyzedAt(new Date().toLocaleString('ko-KR'));
 
       const result = await analyzeWithAI(apiKey, fullText, model, (progress) => {
         setAiProgress(progress);
       });
 
-      if (schoolName) {
-        result.schoolName = schoolName;
-      }
-      result.model = model;
-
-      setAiResult(result);
-
-      const parsedErrors = parseAIResponseToErrors(result.summary, schoolName);
+      const parsedErrors = parseAIResponseToErrors(result.summary);
       setErrorItems(parsedErrors);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '알 수 없는 오류';
@@ -218,23 +259,24 @@ export default function DocumentComparator() {
 
   const handleReset = useCallback(() => {
     setFile(null);
-    setAiResult(null);
     setErrorItems([]);
     setDeletedItems(new Set());
     setError(null);
     setAiProgress(0);
+    setSchoolName('');
+    setAnalyzedAt('');
   }, []);
 
   const handleCopyAll = useCallback(() => {
     const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
     const text = visibleItems.map(item =>
-      `[${item.article}]\n오류: ${item.errorContent}\n피드백: ${item.feedback}\n`
+      `[${item.article}]\n오류: ${item.errorContent}\n수정: ${item.feedback}\n`
     ).join('\n');
 
-    const fullText = `${aiResult?.schoolName || '학업성적관리규정'} 분석 결과\n${'='.repeat(50)}\n\n세부 오류 내역:\n${'='.repeat(50)}\n\n${text}`;
+    const fullText = `${schoolName || '학업성적관리규정'} 분석 결과\n${'='.repeat(50)}\n\n${text}`;
 
     navigator.clipboard.writeText(fullText);
-  }, [errorItems, deletedItems, aiResult]);
+  }, [errorItems, deletedItems, schoolName]);
 
   const handleSaveHTML = useCallback(() => {
     const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
@@ -243,11 +285,10 @@ export default function DocumentComparator() {
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>${aiResult?.schoolName || '학업성적관리규정'} 분석 결과</title>
+  <title>${schoolName || '학업성적관리규정'} 분석 결과</title>
   <style>
     body { font-family: 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
     h1 { color: #5b21b6; border-bottom: 2px solid #5b21b6; padding-bottom: 10px; }
-    h2 { color: #374151; margin-top: 30px; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #d1d5db; padding: 12px; text-align: left; }
     th { background: #5b21b6; color: white; }
@@ -256,17 +297,16 @@ export default function DocumentComparator() {
   </style>
 </head>
 <body>
-  <h1>${aiResult?.schoolName || '학업성적관리규정'} 분석 결과</h1>
-  <p>모델: ${aiResult?.model?.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'} | 분석일시: ${new Date(aiResult?.analyzedAt || '').toLocaleString('ko-KR')}</p>
+  <h1>${schoolName || '학업성적관리규정'} 분석 결과</h1>
+  <p>모델: ${model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'} | 분석일시: ${analyzedAt}</p>
 
-  <h2>세부 오류 내역</h2>
   <table>
     <thead>
       <tr>
         <th style="width: 50px;">번호</th>
         <th style="width: 200px;">학업성적관리규정 기준</th>
         <th>오류 내용</th>
-        <th style="width: 250px;">피드백</th>
+        <th style="width: 300px;">수정 제안</th>
       </tr>
     </thead>
     <tbody>
@@ -291,10 +331,10 @@ export default function DocumentComparator() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${aiResult?.schoolName || '학업성적관리규정'}_분석결과_${new Date().toISOString().split('T')[0]}.html`;
+    a.download = `${schoolName || '학업성적관리규정'}_분석결과_${new Date().toISOString().split('T')[0]}.html`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [errorItems, deletedItems, aiResult]);
+  }, [errorItems, deletedItems, schoolName, model, analyzedAt]);
 
   const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
   const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
@@ -388,14 +428,14 @@ export default function DocumentComparator() {
         )}
       </div>
 
-      {aiResult && visibleItems.length > 0 && (
+      {visibleItems.length > 0 && (
         <div className="bg-white rounded-lg shadow-md p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <h3 className="text-lg font-semibold">세부 오류 내역</h3>
-              {aiResult.schoolName && (
+              {schoolName && (
                 <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
-                  {aiResult.schoolName}
+                  {schoolName}
                 </span>
               )}
             </div>
@@ -422,7 +462,7 @@ export default function DocumentComparator() {
                   <th className="bg-purple-600 text-white p-3 text-left">번호</th>
                   <th className="bg-purple-600 text-white p-3 text-left">학업성적관리규정 기준</th>
                   <th className="bg-purple-600 text-white p-3 text-left">오류 내용</th>
-                  <th className="bg-purple-600 text-white p-3 text-left">피드백</th>
+                  <th className="bg-purple-600 text-white p-3 text-left">수정 제안</th>
                   <th className="bg-purple-600 text-white p-3 text-center">삭제</th>
                 </tr>
               </thead>

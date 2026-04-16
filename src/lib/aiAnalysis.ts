@@ -19,42 +19,39 @@ export interface ComparisonResult {
 }
 
 function buildAnalysisPrompt(schoolRegulationText: string): string {
-  let baselineSummary = '【기준 예시안 조문】\n';
+  let baselineSummary = '【학업성적관리규정 기준 (예시안) 조문】\n';
   for (const article of BASELINE_ARTICLES) {
     const key = getArticleKey(article);
-    baselineSummary += `${key} ${article.title}:\n${article.content}\n\n`;
+    baselineSummary += `[${key}] ${article.title}\n${article.content}\n\n`;
   }
 
-  let uploadedSummary = '【분석 대상 학교 규정】\n' + schoolRegulationText;
+  let uploadedContent = '【분석 대상 학교 규정】\n' + schoolRegulationText;
 
   const prompt = `${baselineSummary}
 
-${uploadedSummary}
+${uploadedContent}
 
-위 두 문서를 비교하여 다음 형식으로 분석해주세요:
+위 두 문서를 비교하여 학교 규정이 예시안(기준)과 어떻게 다른지 분석해주세요.
 
-## 비교 분석 결과
+**출력 형식 (반드시 이 형식을 지켜주세요):**
 
-### 1. 요약
-- 학교 규정과 예시안의 전반적 차이점
+## [제X조] (제목)
+**오류 내용:** [예시안에 비해 무엇이 잘못되었는지, 누락되었는지, 또는 변경되었는지 구체적으로 작성]
+**수정 제안:** [왜 문제가 되는지 + 어떻게 수정해야 하는지 구체적으로 작성]
 
-### 2. 조문별 분석
-각 조문에 대해 다음을 분석:
-- **제X조 [삭제]**: 예시안에 있지만 학교 규정에 없거나大幅変更된 경우
-- **제X조 [추가]**: 학교 규정에만 있는 새로운 조문
-- **제X조 [수정]**: 의미가 변경된 조문
-- **제X조 [동일]**: 예시안과 동일한 경우
+## [제X조] (제목)  
+**오류 내용:** [구체적으로 작성]
+**수정 제안:** [구체적으로 작성]
 
-### 3. 수정/삭제된 조문의 상세 분석
-- 무엇이 변경되었는지
-- 변경이 적절한지 여부
-- 개선 제안사항
+---
 
-### 4. 종합 추천
-- 학교 규정 작성 시 추가하면 좋은 항목
-- 주의해야 할 점
+**주의사항:**
+1. 오류 내용에는 실제 규정에서 잘못된 부분의 **원문**을 포함해주세요
+2. 수정 제안에는 예시안에 맞는 **정정 내용**을 구체적으로 작성해주세요
+3. 문제가 없는 조문은 작성하지 않아도 됩니다
+4. 한국어로 작성해주세요
 
-한국어로 답변해주세요.`;
+이제 분석을 시작합니다:`;
 
   return prompt;
 }
@@ -85,33 +82,12 @@ export async function analyzeWithAI(
     analyzedAt: new Date().toISOString(),
     summary: analysisText,
     articles: [],
-    recommendations: extractRecommendations(analysisText),
+    recommendations: [],
   };
 
   onProgress?.(100);
 
   return comparisonResult;
-}
-
-function extractRecommendations(text: string): string[] {
-  const recommendations: string[] = [];
-  const match = text.match(/### 4\. 종합 추천[\s\S]*?(?=###|$)/i);
-  if (match) {
-    const lines = match[0].split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('-') || trimmed.startsWith('•')) {
-        recommendations.push(trimmed.replace(/^[-•]\s*/, ''));
-      }
-    }
-  }
-  if (recommendations.length === 0) {
-    const bulletMatches = text.matchAll(/^[-\•]\s*(.+)$/gm);
-    for (const match of bulletMatches) {
-      recommendations.push(match[1]);
-    }
-  }
-  return recommendations;
 }
 
 export function extractSchoolName(text: string): string | undefined {
