@@ -314,7 +314,7 @@ export default function DocumentComparator() {
       <tr>
         <td>${idx + 1}</td>
         <td><strong>${item.article}</strong></td>
-        <td>${item.errorContent}</td>
+        <td style="color: #dc2626; font-weight: 500;">${item.errorContent}</td>
         <td>${item.feedback}</td>
       </tr>
       `).join('')}
@@ -430,6 +430,15 @@ export default function DocumentComparator() {
 
       {visibleItems.length > 0 && (
         <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
+            <h3 className="text-lg font-semibold text-purple-800 mb-2">분석 결과 요약</h3>
+            <p className="text-sm text-purple-700">
+              {schoolName && <span className="font-medium">{schoolName}</span>}
+              {schoolName && '의 '}학업성적관리규정을 분석한 결과,{' '}
+              <span className="font-bold text-purple-900">{visibleItems.length}개</span>의 오류/수정 사항이 발견되었습니다.
+            </p>
+          </div>
+
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <h3 className="text-lg font-semibold">세부 오류 내역</h3>
@@ -473,7 +482,7 @@ export default function DocumentComparator() {
                     <td className="p-3">
                       <span className="font-medium text-purple-700">{item.article}</span>
                     </td>
-                    <td className="p-3 text-gray-700">{item.errorContent}</td>
+                    <td className="p-3 text-red-600 font-medium">{item.errorContent}</td>
                     <td className="p-3 text-gray-600">{item.feedback}</td>
                     <td className="p-3 text-center">
                       <button
