@@ -19,51 +19,44 @@ export interface ComparisonResult {
 }
 
 function buildAnalysisPrompt(schoolRegulationText: string): string {
-  let baselineSummary = '【학업성적관리규정 기준 (예시안)】\n\n';
+  let baselineSummary = '【학업성적관리규정 기준 (예시안) 조문】\n';
   for (const article of BASELINE_ARTICLES) {
     const key = getArticleKey(article);
     baselineSummary += `[${key}] ${article.title}\n${article.content}\n\n`;
   }
 
-  const uploadedContent = '【분석 대상 학교 규정】\n\n' + schoolRegulationText;
+  const uploadedContent = '【분석 대상 학교 규정】\n' + schoolRegulationText;
 
-  const systemInstruction = `당신은 학업성적관리규정 전문가입니다. 예시안과 학교 규정을严格按照 비교하여 누락된 항목을検出합니다.
+  const analysisInstructions = `위 두 문서를 비교하여 학교 규정이 예시안(기준)과 어떻게 다른지 분석해주세요.
 
-**핵심 원칙:**
-1. 예시안의 각 조, 각 항목을 빠짐없이 비교
-2. 누락된 항목은 예시안의原文 그대로 표시
-3. 오류는 "예시안 vs 학교규정" 명확히 비교
-4. 분석 결과는 언제나 동일한 구조로 출력`;
+**비교 분석 시 반드시 확인해야 할 항목:**
+1. **누락된 내용**: 예시안에 있는 내용이 학교 규정에서 아예 빠져있는 경우
+2. **오류 내용**: 예시안에 비해 잘못되거나 변경된 내용
+3. **부족한 부분**: 예시안의 필수 항목이 불완전하게 작성된 경우
 
-  const analysisInstructions = `**Task: 예시안 대비 누락/오류 분석**
-
-**비교 기준:** 위 예시안의 모든 조(제1조~제19조, 부칙)의 각 항(①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭)이 학교 규정에서 빠졌거나 잘못되었는지 확인
-
-**출력 형식 (엄격히 준수):**
+**출력 형식 (반드시 이 형식을 지켜주세요):**
 
 ## [제X조] (제목)
-- **유형:** 누락 / 오류 / 부족
-- **누락항목:** (해당하는 경우) "예시안 제X조 X항"
-- **오류내용:** "예시안: [정확한 내용] / 학교규정: [잘못된 내용]"
-- **수정제안:** "예시안 제X조 X항 그대로 적용"
+**누락/오류 유형:** [누락 / 오류 / 부족] 중 해당 유형
+**오류 내용:** [구체적으로 작성 - 누락의 경우 "○○ 조문의 ○○ 부분이 누락됨", 오류의 경우 실제 잘못된 부분의 원문]
+**수정 제안:** [왜 문제가 되는지 + 예시안에 맞게 어떻게 수정해야 하는지 구체적으로 작성]
 
----
-**출력 예시:**
-
-## [제2조] (기본방침)
-- **유형:** 누락
-- **누락항목:** "예시안 제2조 ⑦항"
-- **오류내용:** "예시안에 '학교생활기록부 작성에 필요한 창의적 체험활동상황, 일상생활 활동상황, 행동특성 및 종합의견의 누가기록은 (1안) 한다. (2안) 하지 않는다.'가 없음"
-- **수정제안:** "⑦학교생활기록부 작성에 필요한 창의적 체험활동상황, 일상생활 활동상황, 행동특성 및 종합의견의 누가기록은 (1안) 한다. (2안) 하지 않는다."
+## [제X조] (제목)
+**누락/오류 유형:** [구체적으로 작성]
+**오류 내용:** [구체적으로 작성]
+**수정 제안:** [구체적으로 작성]
 
 ---
 
-**누락 분석 시 중요 규칙:**
-- 예시안의 모든 조의 모든 항목을 확인
-- 빠진 항목이 있으면 "누락항목"에 예시안의原文 기재
-- "수정제안"에는 예시안의原文 그대로 작성`;
+**주의사항:**
+1. 예시안의 각 조문을 기준으로 학교 규정을 하나씩 비교해주세요
+2. 누락된 내용이 있으면 반드시 "누락" 유형으로 표시하고 어떤 내용이 누락되었는지 명시해주세요
+3. 오류 내용에는 실제 규정에서 잘못된 부분의 **원문**을 포함해주세요
+4. 수정 제안에는 예시안에 맞는 **정정 내용**을 구체적으로 작성해주세요
+5. 문제가 없는 조문은 작성하지 않아도 됩니다
+6. 한국어로 작성해주세요`;
 
-  return systemInstruction + '\n\n' + baselineSummary + '\n' + uploadedContent + '\n\n' + analysisInstructions;
+  return baselineSummary + '\n' + uploadedContent + '\n' + analysisInstructions;
 }
 
 export async function analyzeWithAI(
@@ -82,15 +75,7 @@ export async function analyzeWithAI(
   onProgress?.(30, 'AI 분석 시작...');
 
   try {
-    const result = await genModel.generateContentStream({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        topP: 0.8,
-        topK: 40,
-        maxOutputTokens: 8192,
-      },
-    });
+    const result = await genModel.generateContentStream(prompt);
 
     let fullResponse = '';
     let chunkCount = 0;
