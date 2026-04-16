@@ -4,8 +4,18 @@ import { useState, useCallback, useEffect } from 'react';
 import { analyzeWithAI, extractSchoolName, type ComparisonResult } from '@/lib/aiAnalysis';
 import ApiKeyInput from './ApiKeyInput';
 
+const SAVED_STATE_KEY = 'goe_analysis_state';
+
+interface SavedState {
+  apiKey: string;
+  model: string;
+  fileName?: string;
+}
+
 export default function DocumentComparator() {
   const [apiKey, setApiKey] = useState<string>('');
+  const [model, setModel] = useState<string>('gemini-2.0-flash-lite');
+  const [showSettings, setShowSettings] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [aiResult, setAiResult] = useState<ComparisonResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -14,13 +24,27 @@ export default function DocumentComparator() {
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
+    const savedModel = localStorage.getItem('gemini_model') || 'gemini-2.0-flash-lite';
+
     if (savedKey) {
       setApiKey(savedKey);
+      setModel(savedModel);
+      setShowSettings(false);
+    } else {
+      setShowSettings(true);
     }
   }, []);
 
   const handleApiKeySet = useCallback((key: string) => {
     setApiKey(key);
+    if (key) {
+      setShowSettings(false);
+    }
+  }, []);
+
+  const handleModelChange = useCallback((newModel: string) => {
+    setModel(newModel);
+    localStorage.setItem('gemini_model', newModel);
   }, []);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -55,7 +79,7 @@ export default function DocumentComparator() {
     return fullText;
   };
 
-  const handleAIAnalyze = useCallback(async () => {
+  const handleAnalyze = useCallback(async () => {
     if (!file || !apiKey) return;
 
     setIsAnalyzing(true);
@@ -67,18 +91,19 @@ export default function DocumentComparator() {
       const fullText = await extractTextFromPdf(file);
       const schoolName = extractSchoolName(fullText);
 
-      const result = await analyzeWithAI(apiKey, fullText, (progress) => {
+      const result = await analyzeWithAI(apiKey, fullText, model, (progress) => {
         setAiProgress(progress);
       });
 
       if (schoolName) {
         result.schoolName = schoolName;
       }
+      result.model = model;
 
       setAiResult(result);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '알 수 없는 오류';
-      if (message.includes('API_KEY')) {
+      if (message.includes('API_KEY') || message.includes('key')) {
         setError('유효하지 않은 API 키입니다. 다시 확인해주세요.');
       } else if (message.includes('quota') || message.includes('limit')) {
         setError('API 사용량이 초과되었습니다. 나중에 다시 시도해주세요.');
@@ -89,12 +114,67 @@ export default function DocumentComparator() {
       setIsAnalyzing(false);
       setAiProgress(0);
     }
-  }, [file, apiKey]);
+  }, [file, apiKey, model]);
+
+  const handleReset = useCallback(() => {
+    setFile(null);
+    setAiResult(null);
+    setError(null);
+    setAiProgress(0);
+  }, []);
+
+  const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
 
   return (
     <div className="space-y-6">
-      {!apiKey && (
-        <ApiKeyInput onApiKeySet={handleApiKeySet} />
+      {showSettings && !apiKey && (
+        <ApiKeyInput onApiKeySet={handleApiKeySet} onModelChange={handleModelChange} currentModel={model} />
+      )}
+
+      {!apiKey && !showSettings && (
+        <button
+          onClick={() => setShowSettings(true)}
+          className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm hover:bg-purple-200"
+        >
+          API 설정 열기
+        </button>
+      )}
+
+      {apiKey && !showSettings && (
+        <div className="flex items-center justify-between bg-white rounded-lg shadow-md p-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+              <span className="text-sm text-gray-600">API 연결됨</span>
+            </div>
+            <div className="text-sm text-gray-500">
+              모델: <span className="font-medium text-gray-700">{modelDisplayName}</span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+            >
+              {showSettings ? '설정 닫기' : '설정 변경'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showSettings && apiKey && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">API 설정</h3>
+            <button
+              onClick={() => setShowSettings(false)}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              ✕
+            </button>
+          </div>
+          <ApiKeyInput onApiKeySet={handleApiKeySet} onModelChange={handleModelChange} currentModel={model} />
+        </div>
       )}
 
       <div className="bg-white rounded-lg shadow-md p-6">
@@ -134,17 +214,23 @@ export default function DocumentComparator() {
         )}
 
         {file && (
-          <button
-            onClick={handleAIAnalyze}
-            disabled={isAnalyzing || !apiKey}
-            className="mt-4 w-full py-3 px-6 rounded-lg font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white disabled:bg-gray-400"
-          >
-            {isAnalyzing
-              ? `AI 분석 중... ${aiProgress}%`
-              : apiKey
-                ? 'AI 분석 시작'
-                : 'API 키 설정 필요'}
-          </button>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={handleAnalyze}
+              disabled={isAnalyzing || !apiKey}
+              className="flex-1 py-3 px-6 rounded-lg font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white disabled:bg-gray-400"
+            >
+              {isAnalyzing
+                ? `AI 분석 중... ${aiProgress}%`
+                : 'AI 분석 시작'}
+            </button>
+            <button
+              onClick={handleReset}
+              className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+            >
+              다시 시작
+            </button>
+          </div>
         )}
       </div>
 
@@ -152,8 +238,13 @@ export default function DocumentComparator() {
         <div className="bg-white rounded-lg shadow-md p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold">AI 분석 결과</h3>
-            <div className="text-xs text-gray-500">
-              분석 완료: {new Date(aiResult.analyzedAt).toLocaleString('ko-KR')}
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-gray-500">
+                {new Date(aiResult.analyzedAt).toLocaleString('ko-KR')}
+              </span>
+              <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
+                {aiResult.model?.includes('pro') ? 'Pro' : 'Flash'}
+              </span>
             </div>
           </div>
 
@@ -165,19 +256,21 @@ export default function DocumentComparator() {
           )}
 
           <div className="mb-6">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">종합 요약</h4>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-gray-700 whitespace-pre-wrap">{aiResult.summary}</p>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">AI 분석 내용</h4>
+            <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-auto">
+              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                {aiResult.summary}
+              </pre>
             </div>
           </div>
 
           {aiResult.recommendations.length > 0 && (
             <div className="mb-6">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">추천 사항</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">주요 추천 사항</h4>
               <ul className="space-y-2">
                 {aiResult.recommendations.map((rec, idx) => (
                   <li key={idx} className="flex items-start gap-2 text-sm">
-                    <span className="text-purple-600 mt-1">•</span>
+                    <span className="text-purple-600 mt-0.5">•</span>
                     <span className="text-gray-700">{rec}</span>
                   </li>
                 ))}
@@ -185,13 +278,13 @@ export default function DocumentComparator() {
             </div>
           )}
 
-          <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">AI 분석 상세 내용</h4>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap max-h-96 overflow-auto">
-                {aiResult.summary}
-              </pre>
-            </div>
+          <div className="flex gap-2 pt-4 border-t border-gray-200">
+            <button
+              onClick={handleReset}
+              className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+            >
+              다시 분석하기
+            </button>
           </div>
         </div>
       )}

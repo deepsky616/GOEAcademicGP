@@ -11,84 +11,21 @@ export interface AIAnalysisResult {
 
 export interface ComparisonResult {
   schoolName?: string;
+  model?: string;
   analyzedAt: string;
   summary: string;
   articles: AIAnalysisResult[];
   recommendations: string[];
 }
 
-function normalizeText(text: string): string {
-  return text
-    .replace(/\s+/g, ' ')
-    .replace(/[\u00A0\u3000]/g, ' ')
-    .trim();
-}
-
-function extractArticlesFromText(text: string): Map<string, { title: string; content: string }> {
-  const articles = new Map();
-  const lines = text.split('\n');
-  let currentArticle: string | null = null;
-  let currentTitle = '';
-  let currentContent: string[] = [];
-
-  const articlePattern = /^제(\d+)조(?:[\(『])([^(『)]+)?[\)』]?/;
-  const subArticlePattern = /^제(\d+)조의?\d?\s*[\(『]([^(『)]+)[\)』]?/;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const mainMatch = trimmed.match(articlePattern);
-    const subMatch = trimmed.match(subArticlePattern);
-
-    if (mainMatch) {
-      if (currentArticle) {
-        articles.set(currentArticle, {
-          title: currentTitle,
-          content: currentContent.join('\n').trim()
-        });
-      }
-      currentArticle = `제${mainMatch[1]}조`;
-      currentTitle = mainMatch[2] || '';
-      currentContent = [trimmed.replace(articlePattern, '').trim()];
-    } else if (subMatch && currentArticle) {
-      if (currentArticle) {
-        articles.set(currentArticle, {
-          title: currentTitle,
-          content: currentContent.join('\n').trim()
-        });
-      }
-      currentArticle = `제${subMatch[1]}조`;
-      currentTitle = subMatch[2] || '';
-      currentContent = [trimmed.replace(subArticlePattern, '').trim()];
-    } else if (currentArticle) {
-      currentContent.push(trimmed);
-    }
-  }
-
-  if (currentArticle) {
-    articles.set(currentArticle, {
-      title: currentTitle,
-      content: currentContent.join('\n').trim()
-    });
-  }
-
-  return articles;
-}
-
 function buildAnalysisPrompt(schoolRegulationText: string): string {
-  const uploadedArticles = extractArticlesFromText(schoolRegulationText);
-
   let baselineSummary = '【기준 예시안 조문】\n';
   for (const article of BASELINE_ARTICLES) {
     const key = getArticleKey(article);
     baselineSummary += `${key} ${article.title}:\n${article.content}\n\n`;
   }
 
-  let uploadedSummary = '【분석 대상 학교 규정】\n';
-  for (const [key, data] of uploadedArticles) {
-    uploadedSummary += `${key} ${data.title}:\n${data.content}\n\n`;
-  }
+  let uploadedSummary = '【분석 대상 학교 규정】\n' + schoolRegulationText;
 
   const prompt = `${baselineSummary}
 
@@ -125,10 +62,11 @@ ${uploadedSummary}
 export async function analyzeWithAI(
   apiKey: string,
   schoolRegulationText: string,
+  model: string = 'gemini-2.0-flash-lite',
   onProgress?: (progress: number) => void
 ): Promise<ComparisonResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+  const selectedModel = genAI.getGenerativeModel({ model });
 
   onProgress?.(10);
 
@@ -136,56 +74,23 @@ export async function analyzeWithAI(
 
   onProgress?.(30);
 
-  const result = await model.generateContent(prompt);
+  const result = await selectedModel.generateContent(prompt);
   const response = result.response;
   const analysisText = response.text();
 
   onProgress?.(80);
 
   const comparisonResult: ComparisonResult = {
+    model,
     analyzedAt: new Date().toISOString(),
-    summary: extractSummary(analysisText),
-    articles: extractArticleAnalysis(analysisText),
+    summary: analysisText,
+    articles: [],
     recommendations: extractRecommendations(analysisText),
   };
 
   onProgress?.(100);
 
   return comparisonResult;
-}
-
-function extractSummary(text: string): string {
-  const match = text.match(/### 1\. 요약[\s\S]*?(?=###|$)/i);
-  if (match) {
-    return match[0].replace(/### 1\. 요약[\s\S]*?:\s*/, '').trim();
-  }
-  return '분석이 완료되었습니다.';
-}
-
-function extractArticleAnalysis(text: string): AIAnalysisResult[] {
-  const results: AIAnalysisResult[] = [];
-  const articleMatches = text.matchAll(/(제\d+조[^:\n]*):?\s*\[(삭제|추가|수정|동일)\]/g);
-
-  for (const match of articleMatches) {
-    const articleId = match[1].replace(/제/, 'art').replace(/조.*/, '조');
-    results.push({
-      articleId,
-      articleTitle: match[1],
-      status: match[2] as 'added' | 'removed' | 'modified' | 'unchanged',
-      analysis: extractArticleAnalysisDetail(text, match[1]),
-    });
-  }
-
-  return results;
-}
-
-function extractArticleAnalysisDetail(text: string, articleTitle: string): string {
-  const regex = new RegExp(`${articleTitle}[^\\n]*\\n([\\s\\S]*?)(?=제\\d+조|$)`, 'i');
-  const match = text.match(regex);
-  if (match) {
-    return match[1].trim().slice(0, 500);
-  }
-  return '';
 }
 
 function extractRecommendations(text: string): string[] {
@@ -198,6 +103,12 @@ function extractRecommendations(text: string): string[] {
       if (trimmed.startsWith('-') || trimmed.startsWith('•')) {
         recommendations.push(trimmed.replace(/^[-•]\s*/, ''));
       }
+    }
+  }
+  if (recommendations.length === 0) {
+    const bulletMatches = text.matchAll(/^[-\•]\s*(.+)$/gm);
+    for (const match of bulletMatches) {
+      recommendations.push(match[1]);
     }
   }
   return recommendations;
