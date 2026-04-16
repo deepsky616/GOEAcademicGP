@@ -12,6 +12,11 @@ interface ErrorItem {
   feedback: string;
 }
 
+function summarizeText(text: string, maxLength: number = 80): string {
+  if (!text || text.length <= maxLength) return text;
+  return text.substring(0, maxLength).replace(/\s+\S*$/, '') + '...';
+}
+
 function parseAIResponseToErrors(summary: string): ErrorItem[] {
   const errors: ErrorItem[] = [];
   let id = 0;
@@ -72,8 +77,8 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
         id,
         article: articleNum || '학업성적관리규정',
         errorType: errorType || undefined,
-        errorContent: errorContent || feedback || '내용 없음',
-        feedback: feedback || '수정 제안 없음',
+        errorContent: summarizeText(errorContent || feedback || '내용 없음'),
+        feedback: summarizeText(feedback || '수정 제안 없음'),
       });
     }
   }
@@ -94,8 +99,8 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
           errors.push({
             id,
             article: currentArticle,
-            errorContent: currentError.join(' ').trim(),
-            feedback: currentFeedback.join(' ').trim(),
+            errorContent: summarizeText(currentError.join(' ').trim()),
+            feedback: summarizeText(currentFeedback.join(' ').trim()),
           });
         }
         const match = trimmed.match(/제\d+조[^:\n]*/);
@@ -134,8 +139,8 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
       errors.push({
         id,
         article: currentArticle,
-        errorContent: currentError.join(' ').trim(),
-        feedback: currentFeedback.join(' ').trim(),
+        errorContent: summarizeText(currentError.join(' ').trim()),
+        feedback: summarizeText(currentFeedback.join(' ').trim()),
       });
     }
   }
