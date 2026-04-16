@@ -10,11 +10,11 @@ interface ApiKeyInputProps {
 }
 
 const MODELS = [
-  { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.5 Flash', description: '빠른 성능, 일상적인 작업에 권장' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.5 Flash', description: '빠른 성능, 일상적인 작업에 권장' },
   { id: 'gemini-2.5-pro-preview-0520', name: 'Gemini 2.5 Pro', description: '향상된 성능, 복잡한 분석에 적합' },
 ];
 
-export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel = 'gemini-2.0-flash-lite' }: ApiKeyInputProps) {
+export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel = 'gemini-2.0-flash' }: ApiKeyInputProps) {
   const [apiKey, setApiKey] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('gemini_api_key') || '';
@@ -71,10 +71,12 @@ export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel =
     } catch (err: unknown) {
       setTestStatus('error');
       const message = err instanceof Error ? err.message : '알 수 없는 오류';
-      if (message.includes('API_KEY')) {
+      if (message.includes('API_KEY') || message.includes('key')) {
         setTestMessage('유효하지 않은 API 키입니다.');
       } else if (message.includes('quota') || message.includes('limit')) {
         setTestMessage('API 사용량이 초과되었습니다.');
+      } else if (message.includes('not available') || message.includes('no longer available')) {
+        setTestMessage(`선택한 모델(${selectedModel})을 사용할 수 없습니다. 다른 모델을 선택해주세요.`);
       } else {
         setTestMessage(`연결 실패: ${message}`);
       }
@@ -147,7 +149,7 @@ export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel =
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-800">{model.name}</span>
-                    {model.id === 'gemini-2.0-flash-lite' && (
+                    {model.id === 'gemini-2.0-flash' && (
                       <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">권장</span>
                     )}
                   </div>

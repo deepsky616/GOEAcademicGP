@@ -14,7 +14,7 @@ interface SavedState {
 
 export default function DocumentComparator() {
   const [apiKey, setApiKey] = useState<string>('');
-  const [model, setModel] = useState<string>('gemini-2.0-flash-lite');
+  const [model, setModel] = useState<string>('gemini-2.0-flash');
   const [showSettings, setShowSettings] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [aiResult, setAiResult] = useState<ComparisonResult | null>(null);
@@ -24,7 +24,7 @@ export default function DocumentComparator() {
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
-    const savedModel = localStorage.getItem('gemini_model') || 'gemini-2.0-flash-lite';
+    const savedModel = localStorage.getItem('gemini_model') || 'gemini-2.0-flash';
 
     if (savedKey) {
       setApiKey(savedKey);

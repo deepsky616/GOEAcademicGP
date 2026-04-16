@@ -62,7 +62,7 @@ ${uploadedSummary}
 export async function analyzeWithAI(
   apiKey: string,
   schoolRegulationText: string,
-  model: string = 'gemini-2.0-flash-lite',
+  model: string = 'gemini-2.0-flash',
   onProgress?: (progress: number) => void
 ): Promise<ComparisonResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
