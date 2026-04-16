@@ -7,6 +7,7 @@ import ApiKeyInput from './ApiKeyInput';
 interface ErrorItem {
   id: number;
   article: string;
+  errorType?: string;
   errorContent: string;
   feedback: string;
 }
@@ -19,6 +20,7 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
   const errorPattern = /\*\*오류 내용:\*\*\s*([\s\S]*?)(?=\*\*수정 제안:\*\*|\*\*피드백:\*\*|##|$)/i;
   const feedbackPattern = /\*\*수정 제안:\*\*\s*([\s\S]*?)(?=\*\*오류 내용:\*\*|##|$)/i;
   const feedbackAltPattern = /\*\*피드백:\*\*\s*([\s\S]*?)(?=\*\*오류 내용:\*\*|##|$)/i;
+  const errorTypePattern = /\*\*누락\/오류 유형:\*\*\s*([^\n]+)/i;
 
   const sections = summary.split(/##\s*\[/);
 
@@ -27,6 +29,7 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
 
     let articleNum = '';
     let articleTitle = '';
+    let errorType = '';
     let errorContent = '';
     let feedback = '';
 
@@ -42,6 +45,11 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
     }
 
     const body = section.replace(/^[^]*?(?=\*\*|$)/, '');
+
+    const errorTypeMatch = body.match(errorTypePattern);
+    if (errorTypeMatch) {
+      errorType = errorTypeMatch[1].trim();
+    }
 
     const errorMatch = body.match(/\*\*오류 내용:\*\*\s*([\s\S]*?)(?=\*\*수정 제안:\*\*|\*\*피드백:\*\*|$)/i);
     if (errorMatch) {
@@ -63,6 +71,7 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
       errors.push({
         id,
         article: articleNum || '학업성적관리규정',
+        errorType: errorType || undefined,
         errorContent: errorContent || feedback || '내용 없음',
         feedback: feedback || '수정 제안 없음',
       });
@@ -463,6 +472,7 @@ export default function DocumentComparator() {
                 <tr>
                   <th className="bg-purple-600 text-white p-3 text-left">번호</th>
                   <th className="bg-purple-600 text-white p-3 text-left">학업성적관리규정 기준</th>
+                  <th className="bg-purple-600 text-white p-3 text-center">유형</th>
                   <th className="bg-purple-600 text-white p-3 text-left">오류 내용</th>
                   <th className="bg-purple-600 text-white p-3 text-left">수정 제안</th>
                   <th className="bg-purple-600 text-white p-3 text-center">삭제</th>
@@ -474,6 +484,18 @@ export default function DocumentComparator() {
                     <td className="p-3 text-gray-500">{idx + 1}</td>
                     <td className="p-3">
                       <span className="font-medium text-purple-700">{item.article}</span>
+                    </td>
+                    <td className="p-3 text-center">
+                      {item.errorType && (
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          item.errorType.includes('누락') ? 'bg-orange-100 text-orange-700' :
+                          item.errorType.includes('오류') ? 'bg-red-100 text-red-700' :
+                          item.errorType.includes('부족') ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {item.errorType}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3 text-red-600 font-medium">{item.errorContent}</td>
                     <td className="p-3 text-gray-600">{item.feedback}</td>
