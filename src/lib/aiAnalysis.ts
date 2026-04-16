@@ -25,49 +25,41 @@ function buildAnalysisPrompt(schoolRegulationText: string): string {
     baselineSummary += `[${key}] ${article.title}\n${article.content}\n\n`;
   }
 
-  let uploadedContent = '【분석 대상 학교 규정】\n' + schoolRegulationText;
+  const uploadedContent = '【분석 대상 학교 규정】\n' + schoolRegulationText;
 
-  const prompt = `${baselineSummary}
-
-${uploadedContent}
-
-위 두 문서를 비교하여 학교 규정이 예시안(기준)과 어떻게 다른지 분석해주세요.
+  const analysisInstructions = `위 두 문서를 비교하여 학교 규정이 예시안(기준)과 어떻게 다른지 분석해주세요.
 
 **비교 분석 시 반드시 확인해야 할 항목:**
-1. **누락된 내용**: 예시안에 있는 내용이 학교 규정에서 아예 빠져있는 경우
-2. **누락된 항목**: 예시안의 각 조항(①②③④⑤ 등) 중 빠진 것이 있는지 확인
-3. **오류 내용**: 예시안에 비해 잘못되거나 변경된 내용
-4. **부족한 부분**: 예시안의 필수 항목이 불완전하게 작성된 경우
+1. **누락**: 예시안에 있는 항목이 학교 규정에서 아예 빠져있는 경우
+2. **오류**: 예시안에 비해 잘못되거나 변경된 경우
+3. **부족**: 필수 항목이 불완전하게 작성된 경우
 
-**출력 형식 (반드시 이 형식을 지키고, 누락된 항목이 있으면 반드시 명시):**
+**출력 형식 (엄격히 준수):**
 
 ## [제X조] (제목)
-**누락/오류 유형:** [누락 / 오류 / 부족] 중 해당 유형
+**유형:** [누락/오류/부족]
+**내용:** [한 줄로 요약 - 누락은 "제X조 X항 누락", 오류는 "예시안: OOO / 학교: XXX"]
+**수정:** [예시안 조항 그대로 복사]
 
-**누락된 항목:** (누락이 있는 경우에만 작성)
-- "예시안 제X조의 ①②⑧항 등이 누락됨"
+---
+**출력 예시:**
 
-**오류 내용:**
-- 누락의 경우: "○○ 조문의 ○○ 부분이 누락됨" (누락된 전체 항목 나열)
-- 오류의 경우: "예시안: [정확한 내용], 학교규정: [잘못된 원문]"
-
-**수정 제안:**
-- "예시안에 따르면 '[정확한 조항 내용]'으로 수정해야 합니다"
+## [제2조] (기본방침)
+**유형:** 누락
+**내용:** 제2조 ⑦항의 누락 - 예시안에 '학교생활기록부 작성에 필요한 창의적 체험활동상황, 일상생활 활동상황, 행동특성 및 종합의견의 누가기록은 (1안) 한다. (2안) 하지 않는다.'가 없음
+**수정:** ⑦학교생활기록부 작성에 필요한 창의적 체험활동상황, 일상생활 활동상황, 행동특성 및 종합의견의 누가기록은 (1안) 한다. (2안) 하지 않는다.
 
 ---
 
 **주의사항:**
-1. 예시안의 각 조문(제1조~제19조)을 기준으로 학교 규정을 하나씩 비교해주세요
-2. 누락된 내용이 있으면 반드시 "누락" 유형으로 표시하고 어떤 조의 어떤 항목이 누락되었는지 **빠짐없이** 명시해주세요
-3. 특히 각 조의 번호①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭ 등이 모두 있는지 확인해주세요
-4. 오류 내용에는 실제 규정에서 잘못된 부분의 **원문**을 포함해주세요
-5. 수정 제안에는 예시안에 맞는 **정정 내용**을 구체적으로 작성해주세요
-6. 문제가 없는 조문은 작성하지 않아도 됩니다
-7. 한국어로 작성해주세요
+1. 예시안 각 조의 모든 항(①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭)이 있는지 확인
+2. 누락 시 빠진 항 번호와 내용을 정확히 명시
+3. 오류 시 예시안vs학교규정 비교를 한 줄로 명확히 작성
+4. **수정 제안은 반드시 예시안原文 그대로 작성** (변경 없이 복사)
+5. 문제 없는 조문은 생략
+6. 동일 파일 반복 분석 시 항상 동일한 결과 출력`;
 
-이제 분석을 시작합니다:`;
-
-  return prompt;
+  return baselineSummary + '\n' + uploadedContent + '\n' + analysisInstructions;
 }
 
 export async function analyzeWithAI(
@@ -85,11 +77,11 @@ export async function analyzeWithAI(
 
   onProgress?.(20, 'AI 분석 시작...');
 
-  // Use streaming for real-time progress
   const result = await selectedModel.generateContentStream({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       maxOutputTokens: 8192,
+      temperature: 0.1,
     },
   });
 
@@ -103,10 +95,8 @@ export async function analyzeWithAI(
     fullResponse += chunkText;
     chunkCount++;
 
-    // Real-time progress based on accumulated response
-    // Estimate: 30-90% range for AI streaming
     const streamingProgress = Math.min(85, 30 + Math.floor(chunkCount * 2));
-    onProgress?.(streamingProgress, `AI 분석 중... (${chunkCount} 청크 수신)`);
+    onProgress?.(streamingProgress, 'AI 분석 중... (' + chunkCount + ' 청크 수신)');
   }
 
   onProgress?.(90, '응답 처리 중...');
