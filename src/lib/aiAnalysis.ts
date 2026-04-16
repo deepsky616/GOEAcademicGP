@@ -69,32 +69,52 @@ export async function analyzeWithAI(
   apiKey: string,
   schoolRegulationText: string,
   model: string = 'gemini-2.0-flash',
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number, status?: string) => void
 ): Promise<ComparisonResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const selectedModel = genAI.getGenerativeModel({ model });
 
-  onProgress?.(10);
+  onProgress?.(10, '프롬프트 생성 중...');
 
   const prompt = buildAnalysisPrompt(schoolRegulationText);
 
-  onProgress?.(30);
+  onProgress?.(20, 'AI 분석 시작...');
 
-  const result = await selectedModel.generateContent(prompt);
-  const response = result.response;
-  const analysisText = response.text();
+  // Use streaming for real-time progress
+  const result = await selectedModel.generateContentStream({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      maxOutputTokens: 8192,
+    },
+  });
 
-  onProgress?.(80);
+  let fullResponse = '';
+  let chunkCount = 0;
+
+  onProgress?.(30, 'AI 응답 수신 중...');
+
+  for await (const chunk of result.stream) {
+    const chunkText = chunk.text();
+    fullResponse += chunkText;
+    chunkCount++;
+
+    // Real-time progress based on accumulated response
+    // Estimate: 30-90% range for AI streaming
+    const streamingProgress = Math.min(85, 30 + Math.floor(chunkCount * 2));
+    onProgress?.(streamingProgress, `AI 분석 중... (${chunkCount} 청크 수신)`);
+  }
+
+  onProgress?.(90, '응답 처리 중...');
 
   const comparisonResult: ComparisonResult = {
     model,
     analyzedAt: new Date().toISOString(),
-    summary: analysisText,
+    summary: fullResponse,
     articles: [],
     recommendations: [],
   };
 
-  onProgress?.(100);
+  onProgress?.(100, '분석 완료!');
 
   return comparisonResult;
 }

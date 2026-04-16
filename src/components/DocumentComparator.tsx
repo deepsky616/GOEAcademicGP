@@ -150,6 +150,7 @@ export default function DocumentComparator() {
   const [file, setFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiProgress, setAiProgress] = useState(0);
+  const [aiStatus, setAiStatus] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [errorItems, setErrorItems] = useState<ErrorItem[]>([]);
   const [deletedItems, setDeletedItems] = useState<Set<number>>(new Set());
@@ -222,6 +223,7 @@ export default function DocumentComparator() {
     setIsAnalyzing(true);
     setError(null);
     setAiProgress(0);
+    setAiStatus('PDF 텍스트 추출 중...');
     setErrorItems([]);
     setDeletedItems(new Set());
 
@@ -232,9 +234,11 @@ export default function DocumentComparator() {
         setSchoolName(extractedSchoolName);
       }
       setAnalyzedAt(new Date().toLocaleString('ko-KR'));
+      setAiStatus('AI 분석 준비 중...');
 
-      const result = await analyzeWithAI(apiKey, fullText, model, (progress) => {
+      const result = await analyzeWithAI(apiKey, fullText, model, (progress, status) => {
         setAiProgress(progress);
+        if (status) setAiStatus(status);
       });
 
       const parsedErrors = parseAIResponseToErrors(result.summary);
@@ -251,6 +255,7 @@ export default function DocumentComparator() {
     } finally {
       setIsAnalyzing(false);
       setAiProgress(0);
+      setAiStatus('');
     }
   }, [file, apiKey, model]);
 
@@ -272,6 +277,7 @@ export default function DocumentComparator() {
     setDeletedItems(new Set());
     setError(null);
     setAiProgress(0);
+    setAiStatus('');
     setSchoolName('');
     setAnalyzedAt('');
   }, []);
@@ -422,15 +428,30 @@ export default function DocumentComparator() {
         )}
 
         {file && (
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4">
             <button
               onClick={handleAnalyze}
               disabled={isAnalyzing || !apiKey}
-              className="flex-1 py-3 px-6 rounded-lg font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white disabled:bg-gray-400"
+              className="w-full py-3 px-6 rounded-lg font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white disabled:bg-gray-400"
             >
               {isAnalyzing ? `AI 분석 중... ${aiProgress}%` : 'AI 분석 시작'}
             </button>
-            <button onClick={handleReset} className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+            {isAnalyzing && (
+              <div className="mt-3">
+                <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-purple-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${aiProgress}%` }}
+                  />
+                </div>
+                {aiStatus && (
+                  <p className="text-sm text-gray-600 mt-2 text-center">
+                    {aiStatus.includes('AI 분석') ? aiStatus : `🤖 ${aiStatus}`}
+                  </p>
+                )}
+              </div>
+            )}
+            <button onClick={handleReset} className="mt-2 w-full px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
               다시 시작
             </button>
           </div>
