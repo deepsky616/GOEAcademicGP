@@ -315,9 +315,7 @@ export const BASELINE_ARTICLES: Article[] = [
 
 export function getChapterName(chapterId: string): string {
   const chapter = CHAPTERS.find(c => c.id === chapterId);
-  if (!chapter) return '';
-  if (chapter.name === '부칙') return '부칙';
-  return chapter.chapterNumber + '장 ' + chapter.name;
+  return chapter ? `${chapter.chapterNumber}장 ${chapter.name}` : '';
 }
 
 export function getArticleKey(article: Article): string {
