@@ -77,27 +77,18 @@ export async function analyzeWithAI(
 
   onProgress?.(20, 'AI 분석 시작...');
 
-  const result = await selectedModel.generateContentStream({
+  onProgress?.(30, 'AI 분석 중...');
+
+  const result = await selectedModel.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       maxOutputTokens: 8192,
-      temperature: 0.1,
+      temperature: 0.7,
     },
   });
 
-  let fullResponse = '';
-  let chunkCount = 0;
-
-  onProgress?.(30, 'AI 응답 수신 중...');
-
-  for await (const chunk of result.stream) {
-    const chunkText = chunk.text();
-    fullResponse += chunkText;
-    chunkCount++;
-
-    const streamingProgress = Math.min(85, 30 + Math.floor(chunkCount * 2));
-    onProgress?.(streamingProgress, 'AI 분석 중... (' + chunkCount + ' 청크 수신)');
-  }
+  const response = result.response;
+  const fullResponse = response.text();
 
   onProgress?.(90, '응답 처리 중...');
 
