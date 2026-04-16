@@ -75,11 +75,24 @@ export async function analyzeWithAI(
 
   const prompt = buildAnalysisPrompt(schoolRegulationText);
 
-  onProgress?.(30, 'AI 분석 중...');
+  onProgress?.(30, 'AI 분석 시작...');
 
   try {
-    const result = await genModel.generateContent(prompt);
-    const fullResponse = result.response.text();
+    const result = await genModel.generateContentStream(prompt);
+
+    let fullResponse = '';
+    let chunkCount = 0;
+
+    onProgress?.(40, 'AI 분석 중...');
+
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      fullResponse += chunkText;
+      chunkCount++;
+
+      const streamingProgress = Math.min(85, 40 + Math.floor(chunkCount * 3));
+      onProgress?.(streamingProgress, 'AI 분석 중... ' + chunkCount + ' chunks');
+    }
 
     onProgress?.(90, '응답 처리 중...');
 
