@@ -346,7 +346,7 @@ export default function DocumentComparator() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `2026 ${schoolName || '학업성적관리규정'}_분석결과_${new Date().toISOString().split('T')[0]}.html`;
+    a.download = `${schoolName || '학업성적관리규정'}_분석결과_${new Date().toISOString().split('T')[0]}.html`;
     a.click();
     URL.revokeObjectURL(url);
   }, [errorItems, deletedItems, schoolName, model, analyzedAt]);
