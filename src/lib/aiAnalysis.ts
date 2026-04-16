@@ -112,8 +112,8 @@ export async function analyzeWithAI(
 
 export function extractSchoolName(text: string): string | undefined {
   const patterns = [
-    /^(.{0,20}초등학교)/m,
-    /(.{0,20}초등학교)/,
+    /([가-힣]+초등학교)/,
+    /([가-힣]+[\s-][가-힣]+초등학교)/,
   ];
 
   for (const pattern of patterns) {
