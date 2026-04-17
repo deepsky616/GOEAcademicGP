@@ -407,17 +407,63 @@ export default function DocumentComparator() {
           <p className="text-sm text-gray-600 mt-1">기준: 2026 경기도 초등학교 학업성적관리규정 예시안</p>
         </div>
 
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition-colors">
+        <div
+          className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center transition-all duration-300 cursor-pointer group relative overflow-hidden"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const files = e.dataTransfer.files;
+            if (files && files.length > 0) {
+              const file = files[0];
+              if (file.type === 'application/pdf') {
+                const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                handleFileChange(fakeEvent);
+              } else {
+                setError('PDF 파일만 업로드 가능합니다.');
+              }
+            }
+          }}
+          onMouseEnter={() => {
+            const label = document.querySelector('label[for="compare-upload"]');
+            if (label) {
+              (label as HTMLElement).style.transform = 'scale(1.05)';
+              (label as HTMLElement).style.color = '#7c3aed';
+            }
+          }}
+          onMouseLeave={() => {
+            const label = document.querySelector('label[for="compare-upload"]');
+            if (label) {
+              (label as HTMLElement).style.transform = 'scale(1)';
+              (label as HTMLElement).style.color = '#6b7280';
+            }
+          }}
+          style={{}}
+        >
           <input type="file" accept=".pdf" onChange={handleFileChange} className="hidden" id="compare-upload" />
-          <label htmlFor="compare-upload" className="cursor-pointer">
-            <div className="text-purple-600 mb-2">
-              <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <label htmlFor="compare-upload" className="cursor-pointer transition-all duration-300" style={{ color: '#6b7280' }}>
+            <div className="mb-4 relative">
+              <div className="absolute inset-0 bg-purple-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform scale-150"></div>
+              <svg className="w-16 h-16 mx-auto relative z-10 transition-transform duration-300 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
-            <p className="text-gray-600">
-              {file ? file.name : '분석할 학교 학업성적관리규정 PDF를 선택하세요'}
+            <p className="text-base font-medium transition-colors duration-300">
+              {file ? (
+                <span className="text-purple-600 font-semibold">{file.name}</span>
+              ) : (
+                <>
+                  <span className="block mb-1">PDF 파일을 드래그하거나 클릭하여 업로드</span>
+                  <span className="text-xs text-gray-400">또는 클릭하여 파일 선택</span>
+                </>
+              )}
             </p>
+            {file && (
+              <p className="text-sm text-gray-400 mt-2">다른 파일을 업로드하려면 클릭하세요</p>
+            )}
           </label>
         </div>
 
