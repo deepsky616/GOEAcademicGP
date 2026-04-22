@@ -1,4 +1,4 @@
-'use client';
+
 
 import DocumentComparator from '@/components/DocumentComparator';
 
