@@ -145,7 +145,7 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
 
 export default function DocumentComparator() {
   const [apiKey, setApiKey] = useState<string>('');
-  const [model, setModel] = useState<string>('gemini-2.5-flash-preview-05-20');
+  const [model, setModel] = useState<string>('gemini-2.5-flash-preview-0520');
   const [showSettings, setShowSettings] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -159,7 +159,7 @@ export default function DocumentComparator() {
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
-    const savedModel = localStorage.getItem('gemini_model') || 'gemini-2.5-flash-preview-05-20';
+    const savedModel = localStorage.getItem('gemini_model') || 'gemini-2.5-flash-preview-0520';
 
     if (savedKey) {
       setApiKey(savedKey);

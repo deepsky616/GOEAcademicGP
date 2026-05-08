@@ -48,10 +48,10 @@ describe('ApiKeyInput — 모델 목록', () => {
     expect(radios[1]).not.toBeChecked();
   });
 
-  it('Flash 라디오 버튼의 value가 gemini-2.5-flash-preview-05-20이어야 한다', () => {
+  it('Flash 라디오 버튼의 value가 gemini-2.5-flash-preview-0520이어야 한다', () => {
     render(<ApiKeyInput onApiKeySet={noop} />);
     const radios = screen.getAllByRole('radio');
-    expect(radios[0].getAttribute('value')).toBe('gemini-2.5-flash-preview-05-20');
+    expect(radios[0].getAttribute('value')).toBe('gemini-2.5-flash-preview-0520');
   });
 
   it('Pro 라디오 버튼의 value가 gemini-2.5-pro-preview-0520이어야 한다', () => {
