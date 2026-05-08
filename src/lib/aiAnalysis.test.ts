@@ -27,10 +27,10 @@ vi.mock('./baselineData', () => ({
 // 1. 기본 모델 ID가 2.5 Flash인지 검증
 // ──────────────────────────────────────────
 describe('analyzeWithAI 기본 모델', () => {
-  it('기본 모델은 gemini-2.5-flash-preview-0520이어야 한다', async () => {
+  it('기본 모델은 gemini-2.5-flash이어야 한다', async () => {
     const result = await analyzeWithAI('fake-api-key', '학교 규정 텍스트');
     // model 파라미터의 기본값이 반환된 결과에 포함되어야 함
-    expect(result.model).toBe('gemini-2.5-flash-preview-0520');
+    expect(result.model).toBe('gemini-2.5-flash');
   });
 
   it('구버전 gemini-2.0-flash를 기본 모델로 사용해서는 안 된다', async () => {
@@ -39,8 +39,8 @@ describe('analyzeWithAI 기본 모델', () => {
   });
 
   it('Pro 모델을 명시적으로 전달하면 해당 모델로 동작해야 한다', async () => {
-    const result = await analyzeWithAI('fake-api-key', '학교 규정 텍스트', 'gemini-2.5-pro-preview-0520');
-    expect(result.model).toBe('gemini-2.5-pro-preview-0520');
+    const result = await analyzeWithAI('fake-api-key', '학교 규정 텍스트', 'gemini-2.5-pro');
+    expect(result.model).toBe('gemini-2.5-pro');
   });
 
   it('결과에 analyzedAt 타임스탬프가 있어야 한다', async () => {

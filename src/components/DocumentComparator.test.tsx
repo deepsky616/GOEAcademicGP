@@ -42,7 +42,7 @@ describe('DocumentComparator — 기본 모델 상태', () => {
   it('API 설정 패널에 전달되는 기본 모델이 2.5 Flash이어야 한다', () => {
     render(<DocumentComparator />);
     const apiKeyInput = screen.getByTestId('api-key-input');
-    expect(apiKeyInput.dataset.model).toBe('gemini-2.5-flash-preview-0520');
+    expect(apiKeyInput.dataset.model).toBe('gemini-2.5-flash');
   });
 
   it('API 설정 패널에 구버전 2.0 Flash가 전달되어서는 안 된다', () => {
@@ -53,7 +53,7 @@ describe('DocumentComparator — 기본 모델 상태', () => {
 
   it('localStorage에 저장된 모델이 있으면 해당 모델을 사용해야 한다', () => {
     localStorageMock.setItem('gemini_api_key', 'test-key');
-    localStorageMock.setItem('gemini_model', 'gemini-2.5-pro-preview-0520');
+    localStorageMock.setItem('gemini_model', 'gemini-2.5-pro');
     render(<DocumentComparator />);
     // API 키가 있으면 설정 패널은 숨겨지고 상태 바가 표시됨
     expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument();
@@ -72,14 +72,14 @@ describe('DocumentComparator — 기본 모델 상태', () => {
 describe('DocumentComparator — 모델 표시명', () => {
   it('Flash 모델일 때 "Gemini 2.5 Flash"가 표시되어야 한다', () => {
     localStorageMock.setItem('gemini_api_key', 'test-key');
-    localStorageMock.setItem('gemini_model', 'gemini-2.5-flash-preview-0520');
+    localStorageMock.setItem('gemini_model', 'gemini-2.5-flash');
     render(<DocumentComparator />);
     expect(screen.getByText('Gemini 2.5 Flash')).toBeInTheDocument();
   });
 
   it('Pro 모델일 때 "Gemini 2.5 Pro"가 표시되어야 한다', () => {
     localStorageMock.setItem('gemini_api_key', 'test-key');
-    localStorageMock.setItem('gemini_model', 'gemini-2.5-pro-preview-0520');
+    localStorageMock.setItem('gemini_model', 'gemini-2.5-pro');
     render(<DocumentComparator />);
     expect(screen.getByText('Gemini 2.5 Pro')).toBeInTheDocument();
   });
