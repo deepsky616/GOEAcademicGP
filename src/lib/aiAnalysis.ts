@@ -63,7 +63,7 @@ function buildAnalysisPrompt(schoolRegulationText: string): string {
 export async function analyzeWithAI(
   apiKey: string,
   schoolRegulationText: string,
-  model: string = 'gemini-2.0-flash',
+  model: string = 'gemini-2.5-flash-preview-05-20',
   onProgress?: (progress: number, status?: string) => void
 ): Promise<ComparisonResult> {
   const genAI = new GoogleGenerativeAI(apiKey);

@@ -10,11 +10,11 @@ interface ApiKeyInputProps {
 }
 
 const MODELS = [
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.5 Flash', description: '빠른 성능, 일상적인 작업에 권장' },
+  { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash', description: '빠른 성능, 일상적인 작업에 권장' },
   { id: 'gemini-2.5-pro-preview-0520', name: 'Gemini 2.5 Pro', description: '향상된 성능, 복잡한 분석에 적합' },
 ];
 
-export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel = 'gemini-2.0-flash' }: ApiKeyInputProps) {
+export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel = 'gemini-2.5-flash-preview-05-20' }: ApiKeyInputProps) {
   const [apiKey, setApiKey] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('gemini_api_key') || '';
@@ -149,7 +149,7 @@ export default function ApiKeyInput({ onApiKeySet, onModelChange, currentModel =
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-800">{model.name}</span>
-                    {model.id === 'gemini-2.0-flash' && (
+                    {model.id === 'gemini-2.5-flash-preview-05-20' && (
                       <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">권장</span>
                     )}
                   </div>
