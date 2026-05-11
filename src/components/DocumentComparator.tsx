@@ -156,6 +156,7 @@ export default function DocumentComparator() {
   const [deletedItems, setDeletedItems] = useState<Set<number>>(new Set());
   const [schoolName, setSchoolName] = useState<string>('');
   const [analyzedAt, setAnalyzedAt] = useState<string>('');
+  const [originalFileName, setOriginalFileName] = useState<string>('');
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
@@ -192,6 +193,7 @@ export default function DocumentComparator() {
     }
     setError(null);
     setFile(selectedFile);
+    setOriginalFileName(selectedFile.name);
     setErrorItems([]);
     setDeletedItems(new Set());
     setSchoolName('');
@@ -280,6 +282,7 @@ export default function DocumentComparator() {
     setAiStatus('');
     setSchoolName('');
     setAnalyzedAt('');
+    setOriginalFileName('');
   }, []);
 
   const handleCopyAll = useCallback(() => {
@@ -295,6 +298,13 @@ export default function DocumentComparator() {
 
   const handleSaveHTML = useCallback(() => {
     const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
+    const currentDateTime = new Date().toLocaleString('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
     const html = `<!DOCTYPE html>
 <html lang="ko">
@@ -309,11 +319,15 @@ export default function DocumentComparator() {
     th { background: #5b21b6; color: white; }
     tr:nth-child(even) { background: #f9fafb; }
     .footer { margin-top: 30px; color: #6b7280; font-size: 12px; }
+    .meta { margin-top: 10px; color: #6b7280; font-size: 14px; }
   </style>
 </head>
 <body>
   <h1>${schoolName || '학업성적관리규정'} 분석 결과</h1>
-  <p>모델: ${model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'} | 분석일시: ${analyzedAt}</p>
+  <div class="meta">
+    <p>분석파일명: ${originalFileName || '-'}</p>
+    <p>모델: ${model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'} | 분석일시: ${currentDateTime}</p>
+  </div>
 
   <table>
     <thead>
@@ -349,7 +363,7 @@ export default function DocumentComparator() {
     a.download = `2026_${schoolName || '학업성적관리규정'}_학업성적관리규정_분석결과_${new Date().toISOString().split('T')[0]}.html`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [errorItems, deletedItems, schoolName, model, analyzedAt]);
+  }, [errorItems, deletedItems, schoolName, model, originalFileName]);
 
   const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
   const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
