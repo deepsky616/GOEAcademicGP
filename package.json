@@ -24,6 +24,7 @@
   "homepage": "https://github.com/deepsky616/GOEAcademicGP#readme",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@ssabrojs/hwpxjs": "^0.4.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "autoprefixer": "^10.5.0",

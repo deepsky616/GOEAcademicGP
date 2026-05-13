@@ -186,8 +186,9 @@ export default function DocumentComparator() {
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
-    if (selectedFile.type !== 'application/pdf') {
-      setError('PDF 파일만 업로드 가능합니다.');
+    const ext = selectedFile.name.toLowerCase().split('.').pop() || '';
+    if (!['pdf', 'hwp', 'hwpx'].includes(ext)) {
+      setError('PDF, HWP, HWPX 파일만 업로드 가능합니다.');
       setFile(null);
       return;
     }
@@ -199,6 +200,14 @@ export default function DocumentComparator() {
     setSchoolName('');
     setAnalyzedAt('');
   }, []);
+
+  const normalizePdfText = (text: string): string => {
+    let normalized = text.replace(/([가-힣])-\s*\n\s*([가-힣])/g, '$1$2');
+    normalized = normalized.replace(/\n{3,}/g, '\n\n');
+    normalized = normalized.split('\n').map(line => line.trim()).join('\n');
+    normalized = normalized.replace(/제\s+(\d+장|\d+조)/g, '제$1');
+    return normalized;
+  };
 
   const extractTextFromPdf = async (file: File): Promise<string> => {
     const pdfjsLib = await import('pdfjs-dist');
@@ -216,7 +225,36 @@ export default function DocumentComparator() {
         .join(' ');
       fullText += pageText + '\n';
     }
-    return fullText;
+    return normalizePdfText(fullText);
+  };
+
+  const extractTextFromHwpx = async (file: File): Promise<string> => {
+    const { HwpxReader } = await import('@ssabrojs/hwpxjs');
+    const arrayBuffer = await file.arrayBuffer();
+    const reader = new HwpxReader();
+    await reader.loadFromArrayBuffer(arrayBuffer);
+    const text = await reader.extractText();
+    return normalizePdfText(text);
+  };
+
+  const extractTextFromHwp = async (file: File): Promise<string> => {
+    const { hwpToText } = await import('@ssabrojs/hwpxjs');
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const text = await hwpToText(uint8Array);
+    return normalizePdfText(text);
+  };
+
+  const extractTextFromFile = async (file: File): Promise<string> => {
+    const ext = file.name.toLowerCase().split('.').pop() || '';
+    if (ext === 'pdf') {
+      return extractTextFromPdf(file);
+    } else if (ext === 'hwpx') {
+      return extractTextFromHwpx(file);
+    } else if (ext === 'hwp') {
+      return extractTextFromHwp(file);
+    }
+    throw new Error('지원하지 않는 파일 형식입니다.');
   };
 
   const handleAnalyze = useCallback(async () => {
@@ -225,12 +263,12 @@ export default function DocumentComparator() {
     setIsAnalyzing(true);
     setError(null);
     setAiProgress(0);
-    setAiStatus('PDF 텍스트 추출 중...');
+    setAiStatus('파일 텍스트 추출 중...');
     setErrorItems([]);
     setDeletedItems(new Set());
 
     try {
-      const fullText = await extractTextFromPdf(file);
+      const fullText = await extractTextFromFile(file);
       const extractedSchoolName = extractSchoolName(fullText);
       if (extractedSchoolName) {
         setSchoolName(extractedSchoolName);
@@ -433,11 +471,12 @@ export default function DocumentComparator() {
             const files = e.dataTransfer.files;
             if (files && files.length > 0) {
               const file = files[0];
-              if (file.type === 'application/pdf') {
+              const ext = file.name.toLowerCase().split('.').pop() || '';
+              if (['pdf', 'hwp', 'hwpx'].includes(ext)) {
                 const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
                 handleFileChange(fakeEvent);
               } else {
-                setError('PDF 파일만 업로드 가능합니다.');
+                setError('PDF, HWP, HWPX 파일만 업로드 가능합니다.');
               }
             }
           }}
@@ -457,7 +496,7 @@ export default function DocumentComparator() {
           }}
           style={{}}
         >
-          <input type="file" accept=".pdf" onChange={handleFileChange} className="hidden" id="compare-upload" />
+          <input type="file" accept=".pdf,.hwp,.hwpx" onChange={handleFileChange} className="hidden" id="compare-upload" />
           <label htmlFor="compare-upload" className="cursor-pointer transition-all duration-300" style={{ color: '#6b7280' }}>
             <div className="mb-4 relative">
               <div className="absolute inset-0 bg-purple-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform scale-150"></div>
@@ -470,7 +509,7 @@ export default function DocumentComparator() {
                 <span className="text-purple-600 font-semibold">{file.name}</span>
               ) : (
                 <>
-                  <span className="block mb-1">PDF 파일을 드래그하거나 클릭하여 업로드</span>
+                  <span className="block mb-1">PDF, HWP, HWPX 파일을 드래그하거나 클릭하여 업로드</span>
                   <span className="text-xs text-gray-400">또는 클릭하여 파일 선택</span>
                 </>
               )}
