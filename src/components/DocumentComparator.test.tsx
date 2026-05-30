@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import DocumentComparator, { reconstructPageText } from './DocumentComparator';
+import DocumentComparator, { extractHwpTextWithFallback, reconstructPageText } from './DocumentComparator';
+import type { HwpTextExtractionDeps } from './DocumentComparator';
 import { analyzeWithAI, extractSchoolName } from '@/lib/aiAnalysis';
 
 const hwpxMocks = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ vi.mock('@ssabrojs/hwpxjs', () => {
     HwpInvalidFormatError: MockHwpInvalidFormatError,
     HwpUnsupportedError: MockHwpUnsupportedError,
     hwpToText: vi.fn().mockResolvedValue('행복초등학교 학업성적관리규정 제1조'),
+    hwpToHwpx: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
     HwpxReader: vi.fn(),
     HwpxWriter: vi.fn().mockImplementation(function MockHwpxWriter() {
       return {
@@ -84,6 +86,115 @@ describe('PDF 텍스트 복원', () => {
     ]);
 
     expect(text).toBe('첫 줄\n둘째 줄');
+  });
+});
+
+class TestHwpEncryptedError extends Error {}
+class TestHwpInvalidFormatError extends Error {}
+class TestHwpUnsupportedError extends Error {}
+
+function createHwpDeps(overrides?: {
+  primaryText?: string;
+  primaryError?: Error;
+  fallbackText?: string;
+  fallbackError?: Error;
+}): {
+  deps: HwpTextExtractionDeps;
+  hwpToText: ReturnType<typeof vi.fn>;
+  hwpToHwpx: ReturnType<typeof vi.fn>;
+  loadFromArrayBuffer: ReturnType<typeof vi.fn>;
+  extractText: ReturnType<typeof vi.fn>;
+} {
+  const hwpToText = overrides?.primaryError
+    ? vi.fn().mockRejectedValue(overrides.primaryError)
+    : vi.fn().mockResolvedValue(overrides?.primaryText ?? '1차 추출 성공 텍스트');
+  const hwpToHwpx = overrides?.fallbackError
+    ? vi.fn().mockRejectedValue(overrides.fallbackError)
+    : vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+  const loadFromArrayBuffer = vi.fn().mockResolvedValue(undefined);
+  const extractText = overrides?.fallbackError
+    ? vi.fn()
+    : vi.fn().mockResolvedValue(overrides?.fallbackText ?? '폴백 추출 성공 텍스트');
+
+  const HwpxReader = vi.fn().mockImplementation(function MockHwpxReader() {
+    return {
+      loadFromArrayBuffer,
+      extractText,
+    };
+  }) as unknown as HwpTextExtractionDeps['HwpxReader'];
+
+  return {
+    deps: {
+      HwpEncryptedError: TestHwpEncryptedError,
+      HwpInvalidFormatError: TestHwpInvalidFormatError,
+      HwpUnsupportedError: TestHwpUnsupportedError,
+      HwpxReader,
+      hwpToHwpx,
+      hwpToText,
+    },
+    hwpToText,
+    hwpToHwpx,
+    loadFromArrayBuffer,
+    extractText,
+  };
+}
+
+describe('HWP 텍스트 추출 폴백', () => {
+  it('1차 hwpToText가 실질 텍스트를 주면 폴백을 호출하지 않아야 한다', async () => {
+    const { deps, hwpToText, hwpToHwpx } = createHwpDeps({ primaryText: '행복초등학교 규정' });
+
+    const text = await extractHwpTextWithFallback(new Uint8Array([1]), deps, (value) => value.trim());
+
+    expect(text).toBe('행복초등학교 규정');
+    expect(hwpToText).toHaveBeenCalledWith(new Uint8Array([1]));
+    expect(hwpToHwpx).not.toHaveBeenCalled();
+  });
+
+  it('1차 텍스트가 비실질적이면 HWPX 변환 후 HwpxReader로 재추출해야 한다', async () => {
+    const { deps, hwpToHwpx, loadFromArrayBuffer, extractText } = createHwpDeps({
+      primaryText: ' ',
+      fallbackText: '폴백으로 추출된 본문 텍스트',
+    });
+
+    const text = await extractHwpTextWithFallback(new Uint8Array([1]), deps, (value) => value.trim());
+
+    expect(text).toBe('폴백으로 추출된 본문 텍스트');
+    expect(hwpToHwpx).toHaveBeenCalledWith(new Uint8Array([1]));
+    expect(loadFromArrayBuffer).toHaveBeenCalledWith(expect.any(ArrayBuffer));
+    expect(extractText).toHaveBeenCalled();
+  });
+
+  it('1차가 암호화 오류이고 폴백도 실패하면 암호 안내 메시지를 던져야 한다', async () => {
+    const { deps } = createHwpDeps({
+      primaryError: new TestHwpEncryptedError('encrypted'),
+      fallbackError: new Error('fallback failed'),
+    });
+
+    await expect(extractHwpTextWithFallback(new Uint8Array([1]), deps)).rejects.toThrow(
+      '암호가 설정된 HWP 파일은 분석할 수 없습니다. 암호를 해제하거나 HWPX/PDF로 변환해 올려주세요.'
+    );
+  });
+
+  it('1차가 지원 불가 오류이면 변환 안내 메시지를 던져야 한다', async () => {
+    const { deps } = createHwpDeps({
+      primaryError: new TestHwpUnsupportedError('unsupported'),
+      fallbackError: new Error('fallback failed'),
+    });
+
+    await expect(extractHwpTextWithFallback(new Uint8Array([1]), deps)).rejects.toThrow(
+      '이 HWP 형식(배포용 문서 또는 구버전 등)은 분석할 수 없습니다. 한글에서 HWPX 또는 PDF로 변환해 올려주세요.'
+    );
+  });
+
+  it('1차가 형식 오류이면 변환 안내 메시지를 던져야 한다', async () => {
+    const { deps } = createHwpDeps({
+      primaryError: new TestHwpInvalidFormatError('invalid'),
+      fallbackError: new Error('fallback failed'),
+    });
+
+    await expect(extractHwpTextWithFallback(new Uint8Array([1]), deps)).rejects.toThrow(
+      '이 HWP 형식(배포용 문서 또는 구버전 등)은 분석할 수 없습니다. 한글에서 HWPX 또는 PDF로 변환해 올려주세요.'
+    );
   });
 });
 

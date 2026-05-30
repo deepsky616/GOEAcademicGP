@@ -125,6 +125,70 @@ function isPdfTextSubstantial(text: string): boolean {
   return text.replace(/\s/g, '').length >= 5;
 }
 
+type HwpErrorConstructor = new (...args: any[]) => Error;
+
+export interface HwpTextExtractionDeps {
+  hwpToText: (data: Uint8Array) => Promise<string>;
+  hwpToHwpx: (data: Uint8Array) => Promise<Uint8Array>;
+  HwpxReader: new () => {
+    loadFromArrayBuffer: (buffer: ArrayBuffer) => Promise<void>;
+    extractText: () => Promise<string>;
+  };
+  HwpEncryptedError: HwpErrorConstructor;
+  HwpInvalidFormatError: HwpErrorConstructor;
+  HwpUnsupportedError: HwpErrorConstructor;
+}
+
+function toStandaloneArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function getHwpExtractionFailureMessage(
+  firstError: unknown,
+  deps: Pick<HwpTextExtractionDeps, 'HwpEncryptedError' | 'HwpInvalidFormatError' | 'HwpUnsupportedError'>
+): string {
+  if (firstError instanceof deps.HwpEncryptedError) {
+    return '암호가 설정된 HWP 파일은 분석할 수 없습니다. 암호를 해제하거나 HWPX/PDF로 변환해 올려주세요.';
+  }
+  if (firstError instanceof deps.HwpUnsupportedError || firstError instanceof deps.HwpInvalidFormatError) {
+    return '이 HWP 형식(배포용 문서 또는 구버전 등)은 분석할 수 없습니다. 한글에서 HWPX 또는 PDF로 변환해 올려주세요.';
+  }
+  return 'HWP에서 텍스트를 추출하지 못했습니다. 한글에서 HWPX 또는 PDF로 변환해 올려주세요.';
+}
+
+export async function extractHwpTextWithFallback(
+  data: Uint8Array,
+  deps: HwpTextExtractionDeps,
+  normalizeText: (text: string) => string = (text) => text
+): Promise<string> {
+  let firstError: unknown;
+
+  try {
+    const text = normalizeText(await deps.hwpToText(data));
+    if (isPdfTextSubstantial(text)) {
+      return text;
+    }
+  } catch (err: unknown) {
+    firstError = err;
+  }
+
+  try {
+    const hwpxBytes = await deps.hwpToHwpx(data);
+    const reader = new deps.HwpxReader();
+    await reader.loadFromArrayBuffer(toStandaloneArrayBuffer(hwpxBytes));
+    const fallbackText = normalizeText(await reader.extractText());
+    if (isPdfTextSubstantial(fallbackText)) {
+      return fallbackText;
+    }
+  } catch {
+    // 원본 HWP 파싱 오류 종류를 우선 보존한다.
+  }
+
+  throw new Error(getHwpExtractionFailureMessage(firstError, deps));
+}
+
 function parseAIResponseToErrors(summary: string): ErrorItem[] {
   const errors: ErrorItem[] = [];
   let id = 0;
@@ -494,23 +558,24 @@ export default function DocumentComparator() {
       HwpEncryptedError,
       HwpInvalidFormatError,
       HwpUnsupportedError,
+      HwpxReader,
+      hwpToHwpx,
       hwpToText,
     } = await import('@ssabrojs/hwpxjs');
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    try {
-      const text = await hwpToText(uint8Array);
-      return normalizePdfText(text);
-    } catch (err: unknown) {
-      if (
-        err instanceof HwpEncryptedError ||
-        err instanceof HwpInvalidFormatError ||
-        err instanceof HwpUnsupportedError
-      ) {
-        throw new Error('이 HWP 파일은 현재 브라우저에서 텍스트 추출을 지원하지 않습니다. HWPX 또는 PDF로 변환해 올려주세요.');
-      }
-      throw err;
-    }
+    return extractHwpTextWithFallback(
+      uint8Array,
+      {
+        HwpEncryptedError,
+        HwpInvalidFormatError,
+        HwpUnsupportedError,
+        HwpxReader,
+        hwpToHwpx,
+        hwpToText,
+      },
+      normalizePdfText
+    );
   };
 
   const extractTextFromFile = async (file: File): Promise<string> => {
