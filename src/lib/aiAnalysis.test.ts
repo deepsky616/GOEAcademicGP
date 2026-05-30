@@ -1,18 +1,44 @@
 import { describe, it, expect, vi } from 'vitest';
 import { extractSchoolName, analyzeWithAI } from './aiAnalysis';
 
+const geminiMocks = vi.hoisted(() => ({
+  getGenerativeModel: vi.fn(),
+  generateContentStream: vi.fn(),
+}));
+
 // Gemini SDK mock — class 생성자로 mock
 vi.mock('@google/generative-ai', () => {
   const mockStream = async function* () {
-    yield { text: () => '## [제1조] (목적)\n**누락/오류 유형:** 누락\n**오류 내용:** 테스트\n**수정 제안:** 수정 필요' };
+    yield {
+      text: () => JSON.stringify([
+        {
+          article: '제1조',
+          articleTitle: '목적',
+          errorType: '누락',
+          errorContent: '목적 조문 일부가 누락됨',
+          suggestion: '예시안의 목적 조문을 반영해야 함',
+        },
+      ]),
+    };
   };
-  const mockGetGenerativeModel = vi.fn().mockReturnValue({
-    generateContentStream: vi.fn().mockResolvedValue({ stream: mockStream() }),
+  geminiMocks.generateContentStream.mockImplementation(() => Promise.resolve({ stream: mockStream() }));
+  geminiMocks.getGenerativeModel.mockReturnValue({
+    generateContentStream: geminiMocks.generateContentStream,
   });
   function MockGoogleGenerativeAI() {
-    return { getGenerativeModel: mockGetGenerativeModel };
+    return { getGenerativeModel: geminiMocks.getGenerativeModel };
   }
-  return { GoogleGenerativeAI: MockGoogleGenerativeAI };
+  return {
+    GoogleGenerativeAI: MockGoogleGenerativeAI,
+    SchemaType: {
+      STRING: 'string',
+      NUMBER: 'number',
+      INTEGER: 'integer',
+      BOOLEAN: 'boolean',
+      ARRAY: 'array',
+      OBJECT: 'object',
+    },
+  };
 });
 
 // baselineData 'use client' 지시어 때문에 모듈 mock
@@ -47,6 +73,31 @@ describe('analyzeWithAI 기본 모델', () => {
     const result = await analyzeWithAI('fake-api-key', '학교 규정 텍스트');
     expect(result.analyzedAt).toBeTruthy();
     expect(new Date(result.analyzedAt).getTime()).not.toBeNaN();
+  });
+
+  it('구조화 JSON 응답을 findings에 담아야 한다', async () => {
+    const result = await analyzeWithAI('fake-api-key', '학교 규정 텍스트');
+    expect(result.findings).toEqual([
+      {
+        article: '제1조',
+        articleTitle: '목적',
+        errorType: '누락',
+        errorContent: '목적 조문 일부가 누락됨',
+        suggestion: '예시안의 목적 조문을 반영해야 함',
+      },
+    ]);
+  });
+
+  it('Gemini 구조화 출력 설정을 사용해야 한다', async () => {
+    await analyzeWithAI('fake-api-key', '학교 규정 텍스트');
+    expect(geminiMocks.getGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gemini-2.5-flash',
+      generationConfig: expect.objectContaining({
+        temperature: 0,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      }),
+    }));
   });
 });
 

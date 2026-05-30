@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { analyzeWithAI, extractSchoolName } from '@/lib/aiAnalysis';
+import type { ArticleFinding } from '@/lib/aiAnalysis';
 import ApiKeyInput from './ApiKeyInput';
 
 interface ErrorItem {
@@ -12,14 +13,122 @@ interface ErrorItem {
   feedback: string;
 }
 
+export interface PdfTextItemLike {
+  str: string;
+  transform?: unknown[];
+  width?: number;
+  height?: number;
+  hasEOL?: boolean;
+}
+
+interface PdfLineItem {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hasEOL: boolean;
+}
+
+interface PdfLine {
+  y: number;
+  items: PdfLineItem[];
+}
+
+const PDF_LINE_Y_THRESHOLD = 3;
+const PDF_COLUMN_GAP_RATIO = 0.7;
+
+function isPdfTextItem(item: unknown): item is PdfTextItemLike {
+  return Boolean(
+    item &&
+    typeof item === 'object' &&
+    'str' in item &&
+    typeof (item as { str?: unknown }).str === 'string'
+  );
+}
+
+function getPdfItemPosition(item: PdfTextItemLike): { x: number; y: number } | null {
+  const transform = item.transform;
+  if (!Array.isArray(transform) || transform.length < 6) {
+    return null;
+  }
+
+  const x = Number(transform[4]);
+  const y = Number(transform[5]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+
+  return { x, y };
+}
+
+export function reconstructPageText(items: unknown[]): string {
+  const lines: PdfLine[] = [];
+  let forceNextLine = false;
+
+  for (const rawItem of items) {
+    if (!isPdfTextItem(rawItem) || rawItem.str.length === 0) {
+      continue;
+    }
+
+    const position = getPdfItemPosition(rawItem);
+    if (!position) {
+      continue;
+    }
+
+    const lineItem: PdfLineItem = {
+      text: rawItem.str,
+      x: position.x,
+      y: position.y,
+      width: typeof rawItem.width === 'number' ? rawItem.width : 0,
+      height: typeof rawItem.height === 'number' ? rawItem.height : 0,
+      hasEOL: rawItem.hasEOL === true,
+    };
+
+    const lastLine = lines[lines.length - 1];
+    if (!lastLine || forceNextLine || Math.abs(lastLine.y - lineItem.y) > PDF_LINE_Y_THRESHOLD) {
+      lines.push({ y: lineItem.y, items: [lineItem] });
+    } else {
+      lastLine.items.push(lineItem);
+      lastLine.y = (lastLine.y * (lastLine.items.length - 1) + lineItem.y) / lastLine.items.length;
+    }
+
+    forceNextLine = lineItem.hasEOL;
+  }
+
+  return lines
+    .sort((a, b) => b.y - a.y)
+    .map((line) => {
+      const sortedItems = [...line.items].sort((a, b) => a.x - b.x);
+      return sortedItems.reduce((lineText, item, index) => {
+        const text = item.text.trim();
+        if (!text) {
+          return lineText;
+        }
+        if (index === 0 || !lineText) {
+          return text;
+        }
+
+        const previous = sortedItems[index - 1];
+        const previousEndX = previous.x + Math.max(previous.width, previous.text.length * Math.max(previous.height, 8) * 0.45);
+        const gap = item.x - previousEndX;
+        const averageHeight = Math.max(item.height, previous.height, 8);
+        const separator = gap > averageHeight * PDF_COLUMN_GAP_RATIO ? '\t' : ' ';
+        return lineText + separator + text;
+      }, '');
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function isPdfTextSubstantial(text: string): boolean {
+  return text.replace(/\s/g, '').length >= 5;
+}
+
 function parseAIResponseToErrors(summary: string): ErrorItem[] {
   const errors: ErrorItem[] = [];
   let id = 0;
 
-  const articlePattern = /##\s*\[(제\d+조[^\]]*)\]\s*\(([^)]+)\)|##\s*\[(제\d+조[^]]*)\]/g;
-  const errorPattern = /\*\*오류 내용:\*\*\s*([\s\S]*?)(?=\*\*수정 제안:\*\*|\*\*피드백:\*\*|##|$)/i;
-  const feedbackPattern = /\*\*수정 제안:\*\*\s*([\s\S]*?)(?=\*\*오류 내용:\*\*|##|$)/i;
-  const feedbackAltPattern = /\*\*피드백:\*\*\s*([\s\S]*?)(?=\*\*오류 내용:\*\*|##|$)/i;
   const errorTypePattern = /\*\*누락\/오류 유형:\*\*\s*([^\n]+)/i;
 
   const sections = summary.split(/##\s*\[/);
@@ -33,18 +142,18 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
     let errorContent = '';
     let feedback = '';
 
-    const headerMatch = section.match(/^(제\d+조[^]]*)\]\s*\(([^)]+)\)/);
+    const headerMatch = section.match(/^(제\d+조[^\]]*)\]\s*\(([^)]+)\)/);
     if (headerMatch) {
       articleNum = headerMatch[1].trim();
       articleTitle = headerMatch[2].trim();
     } else if (section.startsWith('제')) {
-      const simpleMatch = section.match(/^(제\d+조[^:\n]*)/);
+      const simpleMatch = section.match(/^(제\d+조[^:\n\]]*)/);
       if (simpleMatch) {
         articleNum = simpleMatch[1].trim();
       }
     }
 
-    const body = section.replace(/^[^]*?(?=\*\*|$)/, '');
+    const body = section.replace(/^[\s\S]*?(?=\*\*|$)/, '');
 
     const errorTypeMatch = body.match(errorTypePattern);
     if (errorTypeMatch) {
@@ -143,6 +252,147 @@ function parseAIResponseToErrors(summary: string): ErrorItem[] {
   return errors;
 }
 
+function mapFindingsToErrors(findings: ArticleFinding[]): ErrorItem[] {
+  return findings.map((finding, index) => ({
+    id: index + 1,
+    article: finding.article,
+    errorType: finding.errorType,
+    errorContent: finding.errorContent,
+    feedback: finding.suggestion,
+  }));
+}
+
+function getResultTitle(schoolName: string): string {
+  return `${schoolName || '학업성적관리규정'} 분석 결과`;
+}
+
+function getTodayString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function buildAnalysisPlainText(
+  items: ErrorItem[],
+  schoolName: string,
+  originalFileName: string,
+  modelDisplayName: string,
+  analyzedAt: string
+): string {
+  const title = getResultTitle(schoolName);
+  const lines = [
+    title,
+    '',
+    `분석파일명: ${originalFileName || '-'}`,
+    `모델: ${modelDisplayName}`,
+    `분석일시: ${analyzedAt || new Date().toLocaleString('ko-KR')}`,
+    '',
+    '세부 오류 내역',
+    '',
+  ];
+
+  for (const [index, item] of items.entries()) {
+    lines.push(
+      `[${index + 1}] ${item.article} ${item.errorType ? item.errorType : ''}`.trim(),
+      `오류: ${item.errorContent}`,
+      `수정: ${item.feedback}`,
+      ''
+    );
+  }
+
+  lines.push('본 분석 결과는 AI를 기반으로 하며 참고용으로만 사용하시기 바랍니다.');
+  return lines.join('\n');
+}
+
+function buildAnalysisHtml(
+  items: ErrorItem[],
+  schoolName: string,
+  originalFileName: string,
+  modelDisplayName: string,
+  analyzedAt: string,
+  printMode = false
+): string {
+  const title = getResultTitle(schoolName);
+  const currentDateTime = analyzedAt || new Date().toLocaleString('ko-KR');
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; color: #111827; }
+    h1 { color: #5b21b6; border-bottom: 2px solid #5b21b6; padding-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+    th, td { border: 1px solid #d1d5db; padding: 10px; text-align: left; vertical-align: top; }
+    th { background: #5b21b6; color: white; }
+    tr:nth-child(even) { background: #f9fafb; }
+    .footer { margin-top: 30px; color: #6b7280; font-size: 12px; }
+    .meta { margin-top: 10px; color: #6b7280; font-size: 14px; }
+    ${printMode ? `
+    @page { margin: 16mm; }
+    @media print {
+      body { max-width: none; padding: 0; }
+      h1 { color: #111827; border-bottom-color: #111827; }
+      th { background: #e5e7eb !important; color: #111827 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      tr { break-inside: avoid; }
+      .no-print { display: none; }
+    }` : ''}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <div class="meta">
+    <p>분석파일명: ${escapeHtml(originalFileName || '-')}</p>
+    <p>모델: ${escapeHtml(modelDisplayName)} | 분석일시: ${escapeHtml(currentDateTime)}</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 50px;">번호</th>
+        <th style="width: 180px;">학업성적관리규정 기준</th>
+        <th style="width: 80px;">유형</th>
+        <th>오류 내용</th>
+        <th style="width: 300px;">수정 제안</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${items.map((item, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><strong>${escapeHtml(item.article)}</strong></td>
+        <td>${escapeHtml(item.errorType || '-')}</td>
+        <td style="color: #dc2626; font-weight: 500;">${escapeHtml(item.errorContent)}</td>
+        <td>${escapeHtml(item.feedback)}</td>
+      </tr>
+      `).join('')}
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <p>본 분석 결과는 AI를 기반으로 하며 참고용으로만 사용하시기 바랍니다.</p>
+  </div>
+</body>
+</html>`;
+}
+
 export default function DocumentComparator() {
   const [apiKey, setApiKey] = useState<string>('');
   const [model, setModel] = useState<string>('gemini-2.5-flash');
@@ -220,12 +470,14 @@ export default function DocumentComparator() {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      const pageText = content.items
-        .map((item: unknown) => ('str' in (item as Record<string, unknown>) ? (item as { str: string }).str : ''))
-        .join(' ');
+      const pageText = reconstructPageText(content.items);
       fullText += pageText + '\n';
     }
-    return normalizePdfText(fullText);
+    const normalizedText = normalizePdfText(fullText);
+    if (!isPdfTextSubstantial(normalizedText)) {
+      throw new Error('텍스트를 추출할 수 없는 PDF입니다(스캔본일 수 있음). HWPX 또는 텍스트 PDF로 올려주세요.');
+    }
+    return normalizedText;
   };
 
   const extractTextFromHwpx = async (file: File): Promise<string> => {
@@ -238,11 +490,27 @@ export default function DocumentComparator() {
   };
 
   const extractTextFromHwp = async (file: File): Promise<string> => {
-    const { hwpToText } = await import('@ssabrojs/hwpxjs');
+    const {
+      HwpEncryptedError,
+      HwpInvalidFormatError,
+      HwpUnsupportedError,
+      hwpToText,
+    } = await import('@ssabrojs/hwpxjs');
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    const text = await hwpToText(uint8Array);
-    return normalizePdfText(text);
+    try {
+      const text = await hwpToText(uint8Array);
+      return normalizePdfText(text);
+    } catch (err: unknown) {
+      if (
+        err instanceof HwpEncryptedError ||
+        err instanceof HwpInvalidFormatError ||
+        err instanceof HwpUnsupportedError
+      ) {
+        throw new Error('이 HWP 파일은 현재 브라우저에서 텍스트 추출을 지원하지 않습니다. HWPX 또는 PDF로 변환해 올려주세요.');
+      }
+      throw err;
+    }
   };
 
   const extractTextFromFile = async (file: File): Promise<string> => {
@@ -281,7 +549,12 @@ export default function DocumentComparator() {
         if (status) setAiStatus(status);
       });
 
-      const parsedErrors = parseAIResponseToErrors(result.summary);
+      const structuredErrors = mapFindingsToErrors(result.findings ?? []);
+      const parsedErrors = structuredErrors.length > 0
+        ? structuredErrors
+        : result.summary
+          ? parseAIResponseToErrors(result.summary)
+          : [];
       setErrorItems(parsedErrors);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '알 수 없는 오류';
@@ -336,72 +609,47 @@ export default function DocumentComparator() {
 
   const handleSaveHTML = useCallback(() => {
     const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
-    const currentDateTime = new Date().toLocaleString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    const html = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <title>${schoolName || '학업성적관리규정'} 분석 결과</title>
-  <style>
-    body { font-family: 'Malgun Gothic', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1 { color: #5b21b6; border-bottom: 2px solid #5b21b6; padding-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th, td { border: 1px solid #d1d5db; padding: 12px; text-align: left; }
-    th { background: #5b21b6; color: white; }
-    tr:nth-child(even) { background: #f9fafb; }
-    .footer { margin-top: 30px; color: #6b7280; font-size: 12px; }
-    .meta { margin-top: 10px; color: #6b7280; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <h1>${schoolName || '학업성적관리규정'} 분석 결과</h1>
-  <div class="meta">
-    <p>분석파일명: ${originalFileName || '-'}</p>
-    <p>모델: ${model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'} | 분석일시: ${currentDateTime}</p>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th style="width: 50px;">번호</th>
-        <th style="width: 200px;">학업성적관리규정 기준</th>
-        <th>오류 내용</th>
-        <th style="width: 300px;">수정 제안</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${visibleItems.map((item, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td><strong>${item.article}</strong></td>
-        <td style="color: #dc2626; font-weight: 500;">${item.errorContent}</td>
-        <td>${item.feedback}</td>
-      </tr>
-      `).join('')}
-    </tbody>
-  </table>
-
-  <div class="footer">
-    <p>본 분석 결과는 AI를 기반으로 하며 참고용으로만 사용하시기 바랍니다.</p>
-  </div>
-</body>
-</html>`;
-
+    const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
+    const html = buildAnalysisHtml(visibleItems, schoolName, originalFileName, modelDisplayName, analyzedAt);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `2026_${schoolName || '학업성적관리규정'}_학업성적관리규정_분석결과_${new Date().toISOString().split('T')[0]}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [errorItems, deletedItems, schoolName, model, originalFileName]);
+    downloadBlob(blob, `2026_${schoolName || '학업성적관리규정'}_학업성적관리규정_분석결과_${getTodayString()}.html`);
+  }, [errorItems, deletedItems, schoolName, model, originalFileName, analyzedAt]);
+
+  const handleSaveHwpx = useCallback(async () => {
+    try {
+      const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
+      const { HwpxWriter } = await import('@ssabrojs/hwpxjs');
+      const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
+      const writer = new HwpxWriter();
+      const bytes = await writer.createFromPlainText(
+        buildAnalysisPlainText(visibleItems, schoolName, originalFileName, modelDisplayName, analyzedAt),
+        { title: getResultTitle(schoolName), creator: 'GOEAcademicGP' }
+      );
+      const buffer = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(buffer).set(bytes);
+      const blob = new Blob([buffer], { type: 'application/owpml' });
+      downloadBlob(blob, `2026_${schoolName || '학업성적관리규정'}_분석결과_${getTodayString()}.hwpx`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '알 수 없는 오류';
+      setError(`HWPX 저장 중 오류가 발생했습니다: ${message}`);
+    }
+  }, [errorItems, deletedItems, schoolName, model, originalFileName, analyzedAt]);
+
+  const handlePrintPdf = useCallback(() => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setError('팝업이 차단되어 인쇄 창을 열 수 없습니다. 팝업 허용 후 다시 시도해주세요.');
+      return;
+    }
+
+    const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
+    const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
+    printWindow.document.open();
+    printWindow.document.write(buildAnalysisHtml(visibleItems, schoolName, originalFileName, modelDisplayName, analyzedAt, true));
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }, [errorItems, deletedItems, schoolName, model, originalFileName, analyzedAt]);
 
   const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
   const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
@@ -568,21 +816,38 @@ export default function DocumentComparator() {
             </p>
           </div>
 
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between">
             <h3 className="text-lg font-semibold">세부 오류 내역</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={handleCopyAll}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
-              >
-                전체 내용 복사
-              </button>
-              <button
-                onClick={handleSaveHTML}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
-              >
-                HTML로 저장
-              </button>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleCopyAll}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+                >
+                  전체 내용 복사
+                </button>
+                <button
+                  onClick={handleSaveHTML}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
+                >
+                  HTML로 저장
+                </button>
+                <button
+                  onClick={handleSaveHwpx}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
+                >
+                  HWPX로 저장
+                </button>
+                <button
+                  onClick={handlePrintPdf}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800"
+                >
+                  PDF로 저장(인쇄)
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">
+                HWP가 필요하면 HWPX로 받아 한글에서 다른 이름으로 저장(.hwp)하세요.
+              </p>
             </div>
           </div>
 
