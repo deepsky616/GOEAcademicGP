@@ -296,6 +296,40 @@ describe('DocumentComparator — 구조화 분석 결과', () => {
     expect(screen.getByText('부족')).toBeInTheDocument();
     expect(screen.getByText('평가 계획 안내 내용이 일부만 작성됨')).toBeInTheDocument();
     expect(screen.getByText('예시안에 맞게 평가 계획 안내 절차를 구체적으로 보완')).toBeInTheDocument();
+    expect(screen.queryByText('분석 완료 — 발견된 오류·수정사항이 없습니다')).not.toBeInTheDocument();
+  });
+
+  it('findings가 비어 있으면 0건 완료 안내와 추출 텍스트 진단을 표시해야 한다', async () => {
+    localStorageMock.setItem('gemini_api_key', 'test-key');
+    vi.mocked(extractSchoolName).mockReturnValue('행복초등학교');
+    vi.mocked(analyzeWithAI).mockResolvedValue({
+      model: 'gemini-2.5-flash',
+      analyzedAt: '2026-05-31T00:00:00.000Z',
+      summary: '[]',
+      findings: [],
+      articles: [],
+      recommendations: [],
+    });
+
+    const { container } = render(<DocumentComparator />);
+    const input = container.querySelector('input[type="file"]');
+    const file = new File(['mock'], 'sample.hwp', { type: 'application/x-hwp' });
+    fireEvent.change(input as HTMLInputElement, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'AI 분석 시작' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('분석 완료 — 발견된 오류·수정사항이 없습니다')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/기준 예시안과 비교한 결과/)).toBeInTheDocument();
+    expect(screen.getByText('추출된 텍스트 길이:')).toBeInTheDocument();
+    expect(screen.getByText('추출 텍스트 미리보기 보기')).toBeInTheDocument();
+    expect(screen.getByText('AI 응답 원문 보기')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('추출 텍스트 미리보기 보기'));
+    expect(screen.getByText(/행복초등학교 학업성적관리규정 제1조/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('AI 응답 원문 보기'));
+    expect(screen.getByText('[]')).toBeInTheDocument();
   });
 
   it('HWPX 저장 버튼은 HWPX Blob 다운로드를 트리거해야 한다', async () => {

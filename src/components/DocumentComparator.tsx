@@ -471,6 +471,12 @@ export default function DocumentComparator() {
   const [schoolName, setSchoolName] = useState<string>('');
   const [analyzedAt, setAnalyzedAt] = useState<string>('');
   const [originalFileName, setOriginalFileName] = useState<string>('');
+  const [analysisDone, setAnalysisDone] = useState(false);
+  const [extractedTextLength, setExtractedTextLength] = useState(0);
+  const [extractedPreview, setExtractedPreview] = useState('');
+  const [showExtractedPreview, setShowExtractedPreview] = useState(false);
+  const [lastSummary, setLastSummary] = useState('');
+  const [showRawAiResponse, setShowRawAiResponse] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
@@ -513,6 +519,12 @@ export default function DocumentComparator() {
     setDeletedItems(new Set());
     setSchoolName('');
     setAnalyzedAt('');
+    setAnalysisDone(false);
+    setExtractedTextLength(0);
+    setExtractedPreview('');
+    setShowExtractedPreview(false);
+    setLastSummary('');
+    setShowRawAiResponse(false);
   }, []);
 
   const normalizePdfText = (text: string): string => {
@@ -599,20 +611,31 @@ export default function DocumentComparator() {
     setAiStatus('파일 텍스트 추출 중...');
     setErrorItems([]);
     setDeletedItems(new Set());
+    setAnalysisDone(false);
+    setExtractedTextLength(0);
+    setExtractedPreview('');
+    setShowExtractedPreview(false);
+    setLastSummary('');
+    setShowRawAiResponse(false);
 
     try {
       const fullText = await extractTextFromFile(file);
+      const textLength = fullText.length;
+      setExtractedTextLength(textLength);
+      setExtractedPreview(fullText.slice(0, 500));
       const extractedSchoolName = extractSchoolName(fullText);
       if (extractedSchoolName) {
         setSchoolName(extractedSchoolName);
       }
       setAnalyzedAt(new Date().toLocaleString('ko-KR'));
-      setAiStatus('AI 분석 준비 중...');
+      setAiStatus(`텍스트 추출 완료(${textLength}자) — AI 분석 중...`);
 
       const result = await analyzeWithAI(apiKey, fullText, model, (progress, status) => {
         setAiProgress(progress);
         if (status) setAiStatus(status);
       });
+      setLastSummary(result.summary ?? '');
+      setShowRawAiResponse(false);
 
       const structuredErrors = mapFindingsToErrors(result.findings ?? []);
       const parsedErrors = structuredErrors.length > 0
@@ -621,7 +644,9 @@ export default function DocumentComparator() {
           ? parseAIResponseToErrors(result.summary)
           : [];
       setErrorItems(parsedErrors);
+      setAnalysisDone(true);
     } catch (err: unknown) {
+      setAnalysisDone(false);
       const message = err instanceof Error ? err.message : '알 수 없는 오류';
       if (message.includes('API_KEY') || message.includes('key')) {
         setError('유효하지 않은 API 키입니다. 다시 확인해주세요.');
@@ -659,6 +684,12 @@ export default function DocumentComparator() {
     setSchoolName('');
     setAnalyzedAt('');
     setOriginalFileName('');
+    setAnalysisDone(false);
+    setExtractedTextLength(0);
+    setExtractedPreview('');
+    setShowExtractedPreview(false);
+    setLastSummary('');
+    setShowRawAiResponse(false);
   }, []);
 
   const handleCopyAll = useCallback(() => {
@@ -718,6 +749,7 @@ export default function DocumentComparator() {
 
   const visibleItems = errorItems.filter(item => !deletedItems.has(item.id));
   const modelDisplayName = model.includes('pro') ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash';
+  const shouldShowEmptyResult = analysisDone && !isAnalyzing && !error && visibleItems.length === 0;
 
   return (
     <div className="space-y-6">
@@ -869,6 +901,61 @@ export default function DocumentComparator() {
           </div>
         )}
       </div>
+
+      {shouldShowEmptyResult && (
+        <div className="bg-white rounded-lg shadow-md p-6 border border-green-100">
+          <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+            <h3 className="text-lg font-semibold text-green-800 mb-2">분석 완료 — 발견된 오류·수정사항이 없습니다</h3>
+            <p className="text-sm text-green-700">
+              기준 예시안과 비교한 결과 보고할 차이가 없거나, 업로드한 문서에서 조문 구조를 충분히 인식하지 못했을 수 있습니다.
+            </p>
+          </div>
+
+          <div className="space-y-3 text-sm text-gray-700">
+            <p>
+              추출된 텍스트 길이:{' '}
+              <span className="font-semibold text-gray-900">{extractedTextLength.toLocaleString('ko-KR')}자</span>
+            </p>
+            {extractedTextLength < 100 && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 font-medium text-amber-800">
+                문서에서 텍스트가 거의 추출되지 않았습니다. HWP 대신 HWPX 또는 텍스트 PDF로 변환해 올려보세요.
+              </p>
+            )}
+
+            {extractedPreview && (
+              <div>
+                <button
+                  onClick={() => setShowExtractedPreview(prev => !prev)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+                  type="button"
+                >
+                  {showExtractedPreview ? '추출 텍스트 미리보기 닫기' : '추출 텍스트 미리보기 보기'}
+                </button>
+                {showExtractedPreview && (
+                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-gray-200 bg-gray-50 p-4 font-mono text-xs leading-5 text-gray-800">
+                    {extractedPreview}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            <div>
+              <button
+                onClick={() => setShowRawAiResponse(prev => !prev)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+                type="button"
+              >
+                {showRawAiResponse ? 'AI 응답 원문 닫기' : 'AI 응답 원문 보기'}
+              </button>
+              {showRawAiResponse && (
+                <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-gray-200 bg-gray-950 p-4 font-mono text-xs leading-5 text-gray-100">
+                  {lastSummary ? lastSummary.slice(0, 1000) : 'AI 응답 원문이 비어 있습니다.'}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {visibleItems.length > 0 && (
         <div className="bg-white rounded-lg shadow-md p-6">
